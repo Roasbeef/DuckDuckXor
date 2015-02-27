@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"runtime"
 )
 
 var (
@@ -14,5 +15,11 @@ func init() {
 }
 
 func main() {
-	fmt.Println("wazzah")
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	//i := NewCorpusReader("..")
+	//i.Start()
+	//for p := range i.DocOut {
+	//fmt.Println("got doc", p.Name())
+	//}
 }

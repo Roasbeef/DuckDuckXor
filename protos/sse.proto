@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package protos;
+
+service EncryptedSearch {
+    // TODO(roasbeef): Do the first two need returns? 
+    rpc InitializeIndex(stream IndexData) returns (IndexAck) {}
+
+    rpc UploadDocuments(stream Document) returns (DocumentAck) {}
+
+    rpc KeywordSearch(stream KeywordQuery) returns (stream Document) {}
+
+    rpc ConjunctiveSearchRequest(stream BooleanSearchQuery) returns (stream Document) {}
+
+    rpc XTokenExchange(stream XTokenRequest) returns (stream XTokenResponse) {}
+}
+
+message IndexData {
+    enum MessageType {
+        T_SET = 0;
+        X_SET = 1;
+    }
+
+    message TSet {
+        // stag = F(K_t, w)
+        // b, L, K = F_p(stag, i)
+
+        // e = xind (encrypted doc id)
+        // y = xind * z_c^-1
+        // s_i = (e || y) => 
+
+        // (b || L) -> (B || s_i) XOR K
+        // TODO(roasbeef): Need to decide on length split for these vals
+        // Key is hex-encoded byte array
+        map<string, bytes> t_tuples = 1;
+    }
+
+    // g^( F_p(K_x, w) * xind ) 
+    message XSet {
+        bytes xtag = 1;
+    }
+
+    MessageType type = 1;
+
+    optional TSet t_set = 2; 
+    optional XSet x_set = 3;
+}
+
+message IndexAck {
+    bool ack = 1;
+}
+
+message Document {
+    bytes doc_id = 1;
+    bytes document = 2;
+}
+
+message DocumentAck {
+    bool ack = 1;
+}
+
+// stag = F(K_t, w)
+message KeywordQuery {
+    bytes stag = 1;
+}
+
+message BooleanSearchQuery {
+    enum SearchType {
+        NEGATION = 0;
+        SNF = 1;
+        ARBITRARY = 2;
+        DISJUNCTION = 3;
+    }
+
+    message NegatedConjunction {
+       bytes stag = 1;
+       string bool_query = 2;
+    }
+
+    message SearchableNormalForm {
+        // stag ^ (xtag ^ ...)
+        bytes stag = 1;
+        string bool_query = 2;
+    }
+
+    message ArbitraryBoolQuery {
+        // TRUE ^ (xtag AND xtag OR xtag)
+        string bool_query = 1;
+    }
+
+    message DisjunctionQuery {
+        string bool_query = 1;
+    }
+
+    SearchType type = 1;
+
+    optional NegatedConjunction n_query = 2;
+    optional SearchableNormalForm s_query = 3;
+    optional ArbitraryBoolQuery a_query = 4;
+    optional DisjunctionQuery d_query = 5;
+}
+
+message XTokenRequest {
+    // TODO(roasbeef): add a search ID?
+    bytes stag = 1;
+    int32 doc_index = 2;
+}
+
+message XTokenResponse {
+    bytes stag = 1;
+    int32 doc_index = 2;
+    bytes xtoken = 3;
+}
+
+message Error {
+    // Error message for out of bounds caused by a word being too large for the FFX scheme
+}

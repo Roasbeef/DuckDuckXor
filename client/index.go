@@ -96,3 +96,10 @@ func (c *CorpusReader) directoryWalker(outPaths chan string) {
 	close(outPaths)
 	c.wg.Done()
 }
+
+type TermFrequencyCalculator struct {
+}
+
+func (t *TermFrequencyCalculator) createFrequencyMap() {
+
+}

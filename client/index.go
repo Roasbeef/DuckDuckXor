@@ -1,18 +1,19 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 )
 
+// document...
 type document struct {
 	*os.File
 	DocId int32
 }
 
+// CorpusReader....
 type CorpusReader struct {
 	quit     chan struct{}
 	rootDir  string
@@ -26,12 +27,14 @@ type CorpusReader struct {
 	sync.Mutex
 }
 
+// NewCorpusReader....
 func NewCorpusReader(rootDir string) *CorpusReader {
 	q := make(chan struct{})
 	d := make(chan *document)
 	return &CorpusReader{quit: q, DocOut: d, rootDir: rootDir}
 }
 
+// Stop...
 func (c *CorpusReader) Stop() error {
 	if atomic.AddInt32(&c.started, 1) != 1 {
 		return nil
@@ -41,6 +44,7 @@ func (c *CorpusReader) Stop() error {
 	return nil
 }
 
+// Start...
 func (c *CorpusReader) Start() error {
 	if atomic.AddInt32(&c.started, 1) != 1 {
 		return nil
@@ -53,6 +57,7 @@ func (c *CorpusReader) Start() error {
 	return nil
 }
 
+// NextDocId....
 func (c *CorpusReader) NextDocId() int32 {
 	c.Lock()
 	defer c.Unlock()
@@ -61,7 +66,7 @@ func (c *CorpusReader) NextDocId() int32 {
 	return c.nextDocId
 }
 
-//documentReader ...
+// documentReader....
 func (c *CorpusReader) documentReader(filePaths <-chan string) {
 out:
 	for filePath := range filePaths {
@@ -79,11 +84,13 @@ out:
 		d := &document{File: f, DocId: c.NextDocId()}
 		c.DocOut <- d
 	}
+
 	// TODO(roasbeef): Re-think closing if want multiple reader workers
 	close(c.DocOut)
 	c.wg.Done()
 }
 
+// directoryWalker....
 func (c *CorpusReader) directoryWalker(outPaths chan string) {
 	filepath.Walk(c.rootDir, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {

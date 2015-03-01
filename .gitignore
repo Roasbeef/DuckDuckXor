@@ -24,3 +24,5 @@ inverted_index_calculator.go
 *.exe
 *.test
 *.prof
+
+.DS_Store

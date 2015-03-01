@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,15 +16,13 @@ type document struct {
 
 // CorpusReader....
 type CorpusReader struct {
-	quit     chan struct{}
-	rootDir  string
-	started  int32
-	shutDown int32
-	wg       sync.WaitGroup
-	DocOut   chan *document
-
+	quit      chan struct{}
+	rootDir   string
+	started   int32
+	shutDown  int32
+	Wg        sync.WaitGroup
+	DocOut    chan *document
 	nextDocId int32
-
 	sync.Mutex
 }
 
@@ -40,7 +39,7 @@ func (c *CorpusReader) Stop() error {
 		return nil
 	}
 	close(c.quit)
-	c.wg.Wait()
+	c.Wg.Wait()
 	return nil
 }
 
@@ -49,11 +48,11 @@ func (c *CorpusReader) Start() error {
 	if atomic.AddInt32(&c.started, 1) != 1 {
 		return nil
 	}
-	c.wg.Add(2)
+	c.Wg.Add(2)
 	a := make(chan string)
-	go c.directoryWalker(a)
-	// TODO(daniel): Re-visit if want to scale out num workers
-	go c.documentReader(a)
+	go c.DirectoryWalker(a, c.rootDir)
+	// TOD
+	go c.DocumentReader(a, c.DocOut)
 	return nil
 }
 
@@ -67,7 +66,7 @@ func (c *CorpusReader) NextDocId() int32 {
 }
 
 // documentReader....
-func (c *CorpusReader) documentReader(filePaths <-chan string) {
+func (c *CorpusReader) DocumentReader(filePaths <-chan string, docOut chan *document) {
 out:
 	for filePath := range filePaths {
 		select {
@@ -82,17 +81,20 @@ out:
 			break out
 		}
 		d := &document{File: f, DocId: c.NextDocId()}
-		c.DocOut <- d
+		docOut <- d
 	}
 
 	// TODO(roasbeef): Re-think closing if want multiple reader workers
-	close(c.DocOut)
-	c.wg.Done()
+	close(docOut)
+	c.Wg.Done()
 }
 
 // directoryWalker....
-func (c *CorpusReader) directoryWalker(outPaths chan string) {
-	filepath.Walk(c.rootDir, func(path string, info os.FileInfo, err error) error {
+func (c *CorpusReader) DirectoryWalker(outPaths chan string, rootDir string) error {
+
+	fmt.Printf("starting func \n\n")
+
+	filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
 			outPaths <- path
 
@@ -101,5 +103,6 @@ func (c *CorpusReader) directoryWalker(outPaths chan string) {
 	})
 
 	close(outPaths)
-	c.wg.Done()
+	c.Wg.Done()
+	return nil
 }

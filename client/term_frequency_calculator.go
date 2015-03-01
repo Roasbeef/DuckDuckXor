@@ -17,10 +17,11 @@ type TermFrequencyCalculator struct {
 	wg         sync.WaitGroup
 	started    int32
 	shutDown   int32
+	err        chan error
 }
 
 //termFreq shoud have as many buffers as workers
-func (t *TermFrequencyCalculator) NewTermFrequencyCalculator(numWorkers int, d chan *document) TermFrequencyCalculator {
+func NewTermFrequencyCalculator(numWorkers int, d chan *document) TermFrequencyCalculator {
 	q := make(chan struct{})
 
 	termFreq := make(chan map[string]int, numWorkers)
@@ -55,12 +56,15 @@ func (t *TermFrequencyCalculator) frequencyWorker() {
 
 	m := make(map[string]int)
 out:
-	for doc := range t.docIn {
+	for {
 		select {
 		case <-t.quit:
 			break out
-		default:
-			io.Copy(b, doc)
+		case doc := <-t.docIn:
+			_, err := io.Copy(b, doc)
+			if err != nil {
+				//TODO handle error:
+			}
 			contents := string(b.Bytes())
 			tokens := strings.Split(contents, " ")
 			for _, token := range tokens {

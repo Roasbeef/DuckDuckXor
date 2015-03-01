@@ -3,7 +3,7 @@
 // DO NOT EDIT!
 
 /*
-Package sse is a generated protocol buffer package.
+Package sse_protos is a generated protocol buffer package.
 
 It is generated from these files:
 	sse.proto
@@ -19,7 +19,7 @@ It has these top-level messages:
 	XTokenResponse
 	Error
 */
-package sse
+package sse_protos
 
 import proto "github.com/golang/protobuf/proto"
 
@@ -82,7 +82,7 @@ func (x BooleanSearchQuery_SearchType) String() string {
 }
 
 type IndexData struct {
-	Type IndexData_MessageType `protobuf:"varint,1,opt,name=type,enum=sse.IndexData_MessageType" json:"type,omitempty"`
+	Type IndexData_MessageType `protobuf:"varint,1,opt,name=type,enum=sse_protos.IndexData_MessageType" json:"type,omitempty"`
 	TSet *IndexData_TSet       `protobuf:"bytes,2,opt,name=t_set" json:"t_set,omitempty"`
 	XSet *IndexData_XSet       `protobuf:"bytes,3,opt,name=x_set" json:"x_set,omitempty"`
 }
@@ -167,7 +167,7 @@ func (m *KeywordQuery) String() string { return proto.CompactTextString(m) }
 func (*KeywordQuery) ProtoMessage()    {}
 
 type BooleanSearchQuery struct {
-	Type   BooleanSearchQuery_SearchType            `protobuf:"varint,1,opt,name=type,enum=sse.BooleanSearchQuery_SearchType" json:"type,omitempty"`
+	Type   BooleanSearchQuery_SearchType            `protobuf:"varint,1,opt,name=type,enum=sse_protos.BooleanSearchQuery_SearchType" json:"type,omitempty"`
 	NQuery *BooleanSearchQuery_NegatedConjunction   `protobuf:"bytes,2,opt,name=n_query" json:"n_query,omitempty"`
 	SQuery *BooleanSearchQuery_SearchableNormalForm `protobuf:"bytes,3,opt,name=s_query" json:"s_query,omitempty"`
 	AQuery *BooleanSearchQuery_ArbitraryBoolQuery   `protobuf:"bytes,4,opt,name=a_query" json:"a_query,omitempty"`
@@ -272,8 +272,8 @@ func (m *Error) String() string { return proto.CompactTextString(m) }
 func (*Error) ProtoMessage()    {}
 
 func init() {
-	proto.RegisterEnum("sse.IndexData_MessageType", IndexData_MessageType_name, IndexData_MessageType_value)
-	proto.RegisterEnum("sse.BooleanSearchQuery_SearchType", BooleanSearchQuery_SearchType_name, BooleanSearchQuery_SearchType_value)
+	proto.RegisterEnum("sse_protos.IndexData_MessageType", IndexData_MessageType_name, IndexData_MessageType_value)
+	proto.RegisterEnum("sse_protos.BooleanSearchQuery_SearchType", BooleanSearchQuery_SearchType_name, BooleanSearchQuery_SearchType_value)
 }
 
 // Client API for EncryptedSearch service
@@ -296,7 +296,7 @@ func NewEncryptedSearchClient(cc *grpc.ClientConn) EncryptedSearchClient {
 }
 
 func (c *encryptedSearchClient) InitializeIndex(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_InitializeIndexClient, error) {
-	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[0], c.cc, "/sse.EncryptedSearch/InitializeIndex", opts...)
+	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[0], c.cc, "/sse_protos.EncryptedSearch/InitializeIndex", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +330,7 @@ func (x *encryptedSearchInitializeIndexClient) CloseAndRecv() (*IndexAck, error)
 }
 
 func (c *encryptedSearchClient) UploadDocuments(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadDocumentsClient, error) {
-	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[1], c.cc, "/sse.EncryptedSearch/UploadDocuments", opts...)
+	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[1], c.cc, "/sse_protos.EncryptedSearch/UploadDocuments", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +364,7 @@ func (x *encryptedSearchUploadDocumentsClient) CloseAndRecv() (*DocumentAck, err
 }
 
 func (c *encryptedSearchClient) KeywordSearch(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_KeywordSearchClient, error) {
-	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[2], c.cc, "/sse.EncryptedSearch/KeywordSearch", opts...)
+	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[2], c.cc, "/sse_protos.EncryptedSearch/KeywordSearch", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -395,7 +395,7 @@ func (x *encryptedSearchKeywordSearchClient) Recv() (*Document, error) {
 }
 
 func (c *encryptedSearchClient) ConjunctiveSearchRequest(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_ConjunctiveSearchRequestClient, error) {
-	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[3], c.cc, "/sse.EncryptedSearch/ConjunctiveSearchRequest", opts...)
+	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[3], c.cc, "/sse_protos.EncryptedSearch/ConjunctiveSearchRequest", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +426,7 @@ func (x *encryptedSearchConjunctiveSearchRequestClient) Recv() (*Document, error
 }
 
 func (c *encryptedSearchClient) XTokenExchange(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_XTokenExchangeClient, error) {
-	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[4], c.cc, "/sse.EncryptedSearch/XTokenExchange", opts...)
+	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[4], c.cc, "/sse_protos.EncryptedSearch/XTokenExchange", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +602,7 @@ func (x *encryptedSearchXTokenExchangeServer) Recv() (*XTokenRequest, error) {
 }
 
 var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "sse.EncryptedSearch",
+	ServiceName: "sse_protos.EncryptedSearch",
 	HandlerType: (*EncryptedSearchServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{

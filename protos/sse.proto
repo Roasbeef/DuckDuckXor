@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package sse;
+package sse_protos;
 
 service EncryptedSearch {
     // TODO(roasbeef): Do the first two need returns? 

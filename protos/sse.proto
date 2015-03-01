@@ -1,18 +1,18 @@
 syntax = "proto3";
 
-package protos;
+package sse;
 
 service EncryptedSearch {
     // TODO(roasbeef): Do the first two need returns? 
-    rpc InitializeIndex(stream IndexData) returns (IndexAck) {}
+    rpc InitializeIndex(stream IndexData) returns (IndexAck);
 
-    rpc UploadDocuments(stream Document) returns (DocumentAck) {}
+    rpc UploadDocuments(stream Document) returns (DocumentAck);
 
-    rpc KeywordSearch(stream KeywordQuery) returns (stream Document) {}
+    rpc KeywordSearch(stream KeywordQuery) returns (stream Document);
 
-    rpc ConjunctiveSearchRequest(stream BooleanSearchQuery) returns (stream Document) {}
+    rpc ConjunctiveSearchRequest(stream BooleanSearchQuery) returns (stream Document);
 
-    rpc XTokenExchange(stream XTokenRequest) returns (stream XTokenResponse) {}
+    rpc XTokenExchange(stream XTokenRequest) returns (stream XTokenResponse);
 }
 
 message IndexData {

@@ -7,26 +7,32 @@ import (
 	"sync"
 )
 
+type TSetUpdateMessage struct {
+	docID int32
+	words map[string]struct{}
+}
+
 type InvertedIndexCalculator struct {
-	quit           chan struct{}
-	ResultInvIndex map[string]int32
-	invertedIndex  chan map[string]int32
-	docIn          chan *document
-	wg             sync.WaitGroup
-	started        int32
-	numWorkers     int
+	quit              chan struct{}
+	ResultInvIndex    map[string]int32
+	finalIndexEntries chan map[string]int32
+
+	docIn      chan *document
+	wg         sync.WaitGroup
+	started    int32
+	numWorkers int
 }
 
 func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *document, numWorkers int) InvertedIndexCalculator {
 
 	q := make(chan struct{})
 
-	invertedIndex := make(chan map[string]int32, numWorkers)
-	return InvertedIndexCalculator{quit: q, invertedIndex: invertedIndex, docIn: docs, numWorkers: numWorkers}
+	finalIndexEntries := make(chan map[string]int32, numWorkers)
+	return InvertedIndexCalculator{quit: q, finalIndexEntries: finalIndexEntries, docIn: docs, numWorkers: numWorkers}
 
 }
 
-func (i *InvertedIndexCalculator) invertedIndexWorker() {
+func (i *InvertedIndexCalculator) finalIndexEntriesWorker() {
 	var bit []byte
 	b := bytes.NewBuffer(bit)
 	mostRecentDoc := make(map[string]int32)
@@ -47,7 +53,7 @@ out:
 			b.Reset()
 		}
 	}
-	i.invertedIndex <- mostRecentDoc
+	i.finalIndexEntries <- mostRecentDoc
 	i.wg.Done()
 }
 
@@ -61,9 +67,9 @@ func maxInt(a int32, b int32) int32 {
 
 func (i *InvertedIndexCalculator) invIndexMapReduce() map[string]int32 {
 	i.wg.Wait()
-	masterMap := <-i.invertedIndex
+	masterMap := <-i.finalIndexEntries
 	for j := 0; j < i.numWorkers-1; j++ {
-		tempMap := <-i.invertedIndex
+		tempMap := <-i.finalIndexEntries
 		for k := range tempMap {
 			masterMap[k] = maxInt(masterMap[k], tempMap[k])
 		}

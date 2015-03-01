@@ -1,10 +1,9 @@
 package main
 
-import (
-	//"fmt"
-	"fmt"
-	"testing"
-)
+import
+//"fmt"
+
+"testing"
 
 // creating the doc list will assume that CorpusReader
 // is already working correctly
@@ -41,7 +40,6 @@ func TestLiteralMapReducer(t *testing.T) {
 	if err != nil {
 		t.Error("something went wrong while mapping")
 	}
-	fmt.Printf("got to point of lmp")
 	a := tf.literalMapReducer()
 	if a["yummy"] != 4 {
 		t.Error("map did not reduce to a sum of values. gave value:", a["yummy"])

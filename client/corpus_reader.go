@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -68,20 +67,22 @@ func (c *CorpusReader) NextDocId() int32 {
 // documentReader....
 func (c *CorpusReader) DocumentReader(filePaths <-chan string, docOut chan *document) {
 out:
-	for filePath := range filePaths {
+	for {
 		select {
 		case <-c.quit:
 			break out
-		default:
+		case filePath, ok := <-filePaths:
+			if !ok {
+				break out
+			}
+			f, err := os.Open(filePath)
+			if err != nil {
+				c.Stop()
+				break out
+			}
+			d := &document{File: f, DocId: c.NextDocId()}
+			docOut <- d
 		}
-
-		f, err := os.Open(filePath)
-		if err != nil {
-			c.Stop()
-			break out
-		}
-		d := &document{File: f, DocId: c.NextDocId()}
-		docOut <- d
 	}
 
 	// TODO(roasbeef): Re-think closing if want multiple reader workers
@@ -91,8 +92,6 @@ out:
 
 // directoryWalker....
 func (c *CorpusReader) DirectoryWalker(outPaths chan string, rootDir string) error {
-
-	fmt.Printf("starting func \n\n")
 
 	filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {

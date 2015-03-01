@@ -6,7 +6,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-
 	"sync/atomic"
 )
 
@@ -61,13 +60,10 @@ out:
 		select {
 		case <-t.quit:
 			break out
-		case doc := <-t.docIn:
-			if doc == nil {
-				//TODO ask lalu if this is kosher
+		case doc, ok := <-t.docIn:
+			if !ok {
 				break out
 			}
-
-			fmt.Printf("asgsdfa\n")
 			_, err := io.Copy(b, doc)
 			if err != nil {
 				fmt.Printf("issue with copy\n")
@@ -78,7 +74,6 @@ out:
 			tokens := strings.Split(contents, " ")
 			for _, token := range tokens {
 				m[token] = m[token] + 1
-				//			fmt.Printf("value for %s is now %d \n", token, m[token])
 			}
 			b.Reset()
 		}
@@ -92,15 +87,12 @@ out:
 func (t *TermFrequencyCalculator) literalMapReducer() map[string]int {
 	t.wg.Wait()
 	masterMap := <-t.TermFreq
-	fmt.Printf("hooray i'm starting")
 	for i := 0; i < t.numWorkers-1; i++ {
 		tempMap := <-t.TermFreq
-		fmt.Printf("ouch that hurts")
 		for k := range tempMap {
 			masterMap[k] += tempMap[k]
 		}
 	}
 	t.ResultMap = masterMap
-	fmt.Printf("master map created\n")
 	return t.ResultMap
 }

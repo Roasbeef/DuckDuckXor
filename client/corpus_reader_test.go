@@ -37,11 +37,20 @@ func TestDocumentReader(t *testing.T) {
 	b, _ := filepath.Abs("./testDirectory/testfile1.txt")
 	a <- b
 	d := <-c.DocOut
+	if d.DocId != 1 {
+		t.Error("incorrect DocId assignment: %i", d.DocId)
+	}
+	if !strings.Contains(d.Name(), "testfile1") {
+		t.Error("did not return correct file")
+	}
 	b, _ = filepath.Abs("./testDirectory/testfile2.txt")
 	a <- b
-	fmt.Printf("%s", d.DocId)
 	d = <-c.DocOut
-	fmt.Printf("%s", d.DocId)
-	t.Error("stub")
+	if d.DocId != 2 {
+		t.Error("incorrect DocId assignment: ", d.DocId)
+	}
+	if !strings.Contains(d.Name(), "testfile2") {
+		t.Error("did not return correct file")
+	}
 
 }

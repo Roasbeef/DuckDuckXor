@@ -11,13 +11,7 @@ import (
 
 // AesEncrypt encrypts the passed plain text using AES in CTR mode with the
 // given key.
-func AesEncrypt(key []byte, plainText []byte) ([]byte, error) {
-	// Create a new cipher block.
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
+func AesEncrypt(aesBlock cipher.Block, plainText []byte) ([]byte, error) {
 	// Create a buffer for our cipher text, leaving room for our random IV.
 	cipherText := make([]byte, aes.BlockSize+len(plainText))
 	iv := cipherText[:aes.BlockSize]
@@ -26,7 +20,7 @@ func AesEncrypt(key []byte, plainText []byte) ([]byte, error) {
 	}
 
 	// Encrypt our plain text using AES in CTR mode.
-	stream := cipher.NewCTR(block, iv)
+	stream := cipher.NewCTR(aesBlock, iv)
 	stream.XORKeyStream(cipherText[aes.BlockSize:], plainText)
 
 	return cipherText, nil
@@ -34,17 +28,11 @@ func AesEncrypt(key []byte, plainText []byte) ([]byte, error) {
 
 // AesDecrypt decrypts the passed cipher text using AES in CTR mode with the
 // given key.
-func AesDecrypt(key []byte, cipherText []byte) ([]byte, error) {
-	// Create a new cipher block.
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
+func AesDecrypt(aesBlock cipher.Block, cipherText []byte) ([]byte, error) {
 	plainText := make([]byte, len(cipherText)-aes.BlockSize)
 
 	iv := cipherText[:aes.BlockSize]
-	stream := cipher.NewCTR(block, iv)
+	stream := cipher.NewCTR(aesBlock, iv)
 	stream.XORKeyStream(plainText, cipherText[aes.BlockSize:])
 
 	return plainText, nil

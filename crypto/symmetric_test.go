@@ -2,6 +2,7 @@ package crypto_test
 
 import (
 	"bytes"
+	"crypto/aes"
 	"testing"
 
 	"github.com/roasbeef/DuckDuckXor/crypto"
@@ -11,12 +12,17 @@ func TestCipherCorrectness(t *testing.T) {
 	key := []byte("hellohellohelloo")
 	originalText := []byte("testing")
 
-	cipherText, err := crypto.AesEncrypt(key, originalText)
+	cipher, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatalf("Unable to create cipher: %v", err)
+	}
+
+	cipherText, err := crypto.AesEncrypt(cipher, originalText)
 	if err != nil {
 		t.Fatalf("Unable to encrypt plaintext: %v", err)
 	}
 
-	plainText, err := crypto.AesDecrypt(key, cipherText)
+	plainText, err := crypto.AesDecrypt(cipher, cipherText)
 	if err != nil {
 		t.Fatalf("Unable to decrypt ciphertext: %v", err)
 	}

@@ -8,14 +8,14 @@ import
 // creating the doc list will assume that CorpusReader
 // is already working correctly
 func BuildDocumentChannel() chan *document {
-	c := NewCorpusReader("./testDirectory")
+	c := NewCorpusReader("./test_directory")
 	c.Start()
 	return c.DocOut
 }
 
 func TestFrequencyWorker(t *testing.T) {
 	//b := BuildDocumentChannel()
-	c := NewCorpusReader("./testDirectory/testFile1.txt")
+	c := NewCorpusReader("./test_directory/testFile1.txt")
 	c.Start()
 	tf := NewTermFrequencyCalculator(2, c.DocOut)
 	tf.wg.Add(1)
@@ -32,7 +32,7 @@ func TestFrequencyWorker(t *testing.T) {
 }
 
 func TestLiteralMapReducer(t *testing.T) {
-	c := NewCorpusReader("./testDirectory")
+	c := NewCorpusReader("./test_directory")
 	c.Start()
 	tf := NewTermFrequencyCalculator(2, c.DocOut)
 	tf.wg.Add(1)

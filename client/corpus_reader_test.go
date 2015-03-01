@@ -8,18 +8,18 @@ import (
 )
 
 func TestDirectoryWalker(t *testing.T) {
-	c := NewCorpusReader("./testDirectory")
+	c := NewCorpusReader("./test_directory")
 	if c == nil {
 		t.Error("class not instantiated")
 	}
 	a := make(chan string)
 	//	c.Start()
 	c.Wg.Add(1)
-	go c.DirectoryWalker(a, "./testDirectory")
+	go c.DirectoryWalker(a, "./test_directory")
 	counter := 0
 	for s := range a {
 		fmt.Printf("%s\n", s)
-		if !strings.Contains(s, "testDirectory") {
+		if !strings.Contains(s, "test_directory") {
 			t.Error("test returned incorrect classPath: %s", s)
 		}
 		counter++
@@ -30,11 +30,11 @@ func TestDirectoryWalker(t *testing.T) {
 }
 
 func TestDocumentReader(t *testing.T) {
-	c := NewCorpusReader("./testDirectory")
+	c := NewCorpusReader("./test_directory")
 	a := make(chan string)
 	c.Wg.Add(1)
 	go c.DocumentReader(a, c.DocOut)
-	b, _ := filepath.Abs("./testDirectory/testfile1.txt")
+	b, _ := filepath.Abs("./test_directory/testfile1.txt")
 	a <- b
 	d := <-c.DocOut
 	if d.DocId != 1 {
@@ -43,7 +43,7 @@ func TestDocumentReader(t *testing.T) {
 	if !strings.Contains(d.Name(), "testfile1") {
 		t.Error("did not return correct file")
 	}
-	b, _ = filepath.Abs("./testDirectory/testfile2.txt")
+	b, _ = filepath.Abs("./test_directory/testfile2.txt")
 	a <- b
 	d = <-c.DocOut
 	if d.DocId != 2 {

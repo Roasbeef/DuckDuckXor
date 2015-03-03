@@ -6,11 +6,11 @@ service EncryptedSearch {
     // TODO(roasbeef): Do the first two need returns? 
     rpc InitializeIndex(stream IndexData) returns (IndexAck);
 
-    rpc UploadDocuments(stream Document) returns (DocumentAck);
+    rpc UploadCipherDocs(stream CipherDoc) returns (CipherDocAck);
 
-    rpc KeywordSearch(stream KeywordQuery) returns (stream Document);
+    rpc KeywordSearch(stream KeywordQuery) returns (stream CipherDoc);
 
-    rpc ConjunctiveSearchRequest(stream BooleanSearchQuery) returns (stream Document);
+    rpc ConjunctiveSearchRequest(stream BooleanSearchQuery) returns (stream CipherDoc);
 
     rpc XTokenExchange(stream XTokenRequest) returns (stream XTokenResponse);
 }
@@ -50,12 +50,13 @@ message IndexAck {
     bool ack = 1;
 }
 
-message Document {
-    bytes doc_id = 1;
-    bytes document = 2;
+message CipherDoc {
+    // CipherDoc ID.
+    int32 doc_id = 1;
+    bytes encrypted_doc= 2;
 }
 
-message DocumentAck {
+message CipherDocAck {
     bool ack = 1;
 }
 

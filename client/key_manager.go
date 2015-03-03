@@ -211,7 +211,7 @@ func inverseHashTreeKeyDerivation(masterKey [keySize]byte, numTargetKids int) ([
 
 	// TODO(roasbeef): Edge case for non-power of two?
 	// Derive child keys in a breadth-first manner.
-	parentQueue := make([][keySize]byte, 0, 2)
+	var parentQueue [][keySize]byte
 	parentQueue = append(parentQueue, masterKey)
 	numDerived := 0
 	for numDerived < numTargetKids {
@@ -234,23 +234,22 @@ func inverseHashTreeKeyDerivation(masterKey [keySize]byte, numTargetKids int) ([
 
 // deriveChildren...
 func deriveChildren(parent [keySize]byte) ([][keySize]byte, error) {
-	children := make([][keySize]byte, 0, 2)
-	hash := sha512.New()
-	nextLevel := hash.Sum(parent[:])
+	children := make([][keySize]byte, 2)
+	nextLevel := sha512.Sum512(parent[:])
 
 	var childA [keySize]byte
 	var childB [keySize]byte
 	copy(nextLevel[snacl.KeySize:], childA[:])
 	copy(nextLevel[:snacl.KeySize], childB[:])
 
-	children = append(children, childA)
-	children = append(children, childB)
+	children[0] = childA
+	children[1] = childB
 	return children, nil
 }
 
 // encryptChildKeys....
 func encryptChildKeys(masterKey *snacl.SecretKey, serializedKeys [][keySize]byte) ([][]byte, error) {
-	encryptedKeys := make([][]byte, 0, len(serializedKeys))
+	encryptedKeys := make([][]byte, len(serializedKeys))
 	for i, key := range serializedKeys {
 		ec, err := masterKey.Encrypt(key[:])
 		if err != nil {
@@ -298,7 +297,6 @@ out:
 		}
 	}
 	k.wg.Done()
-
 }
 
 func (k *KeyManager) FetchDocEncKey() *[keySize]byte {

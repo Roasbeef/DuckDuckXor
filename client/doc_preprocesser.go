@@ -25,10 +25,9 @@ func NewDocPreprocessor(inp chan *document) *DocPreprocessor {
 	return &DocPreprocessor{quit: q, TfOut: t, InvIndexOut: i, DocEncryptOut: d, input: inp}
 }
 
-func (d *DocPreprocessor) partitionStreams() error {
+func (d *DocPreprocessor) partitionStreams() {
 	var bit []byte
 	b := bytes.NewBuffer(bit)
-	m := make(map[string]struct{})
 out:
 	for {
 		select {
@@ -38,25 +37,21 @@ out:
 			if !ok {
 				break out
 			}
+			invIndexMap := make(map[string]struct{})
 			_, err := io.Copy(b, doc)
 			if err != nil {
-				return err
+				//TODO error handling
 			}
-			s := string(b.Bytes())
-			p := ParseTokens(s)
-			d.TfOut <- p
-			for _, token := range p {
-				m[token] = struct{}{}
+			parsedTFWords := ParseTokens(string(b.Bytes()))
+			for _, token := range parsedTFWords {
+				invIndexMap[token] = struct{}{}
 			}
-			d.InvIndexOut <- m
+			d.TfOut <- parsedTFWords
+			d.InvIndexOut <- invIndexMap
 			d.DocEncryptOut <- doc
-			for k := range m {
-				delete(m, k)
-			}
 		}
 	}
 	d.wg.Done()
-	return nil
 }
 
 func ParseTokens(s string) []string {

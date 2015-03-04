@@ -9,11 +9,16 @@ import (
 	"unicode"
 )
 
+type InvIndexDocument struct {
+	Words map[string]struct{}
+	DocId int32
+}
+
 type DocPreprocessor struct {
 	quit          chan struct{}
 	started       int32
 	TfOut         chan []string
-	InvIndexOut   chan map[string]struct{}
+	InvIndexOut   chan *InvIndexDocument
 	DocEncryptOut chan *document
 	input         chan *document
 	wg            sync.WaitGroup
@@ -22,7 +27,7 @@ type DocPreprocessor struct {
 func NewDocPreprocessor(inp chan *document) *DocPreprocessor {
 	q := make(chan struct{})
 	d := make(chan *document)
-	i := make(chan map[string]struct{})
+	i := make(chan *InvIndexDocument)
 	t := make(chan []string)
 	return &DocPreprocessor{quit: q, TfOut: t, InvIndexOut: i, DocEncryptOut: d, input: inp}
 }
@@ -68,8 +73,9 @@ out:
 			for _, token := range parsedTFWords {
 				invIndexMap[token] = struct{}{}
 			}
+			InvIndDoc := &InvIndexDocument{invIndexMap, doc.DocId}
 			d.TfOut <- parsedTFWords
-			d.InvIndexOut <- invIndexMap
+			d.InvIndexOut <- InvIndDoc
 			d.DocEncryptOut <- doc
 		}
 	}

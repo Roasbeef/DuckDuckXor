@@ -13,7 +13,7 @@ import
 
 func TestFrequencyWorker(t *testing.T) {
 	fmt.Printf("abcd\n")
-	corpusreader := NewCorpusReader("./test_directory/testFile1.txt")
+	corpusreader := NewCorpusReader("./test_directory/")
 	corpusreader.Start()
 	preprocess := NewDocPreprocessor(corpusreader.DocOut)
 	preprocess.Start()
@@ -23,8 +23,10 @@ func TestFrequencyWorker(t *testing.T) {
 	go tf.frequencyWorker()
 	<-preprocess.InvIndexOut
 	<-preprocess.DocEncryptOut
+	<-preprocess.InvIndexOut
+	<-preprocess.DocEncryptOut
 	m1 := <-tf.TermFreq
-	if m1["yummy"] != 3 {
+	if m1["yummy"] != 4 {
 		// 	//TODO ask lalu about actors hnadling multiple files
 		t.Error("map1 did not return correct term frequencies, \n gave answer", m1["yummy"])
 	}

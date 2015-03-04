@@ -34,6 +34,7 @@ func (t *TermFrequencyCalculator) Start() error {
 
 	go t.frequencyWorker()
 	go t.literalMapReducer()
+	go t.bucketSorter()
 	return nil
 }
 
@@ -50,7 +51,6 @@ func (t *TermFrequencyCalculator) Stop() error {
 
 func (t *TermFrequencyCalculator) frequencyWorker() {
 	m := make(map[string]int)
-	fmt.Printf("before loop\n")
 out:
 	for {
 		fmt.Printf("starting loop\n")
@@ -61,23 +61,22 @@ out:
 			if !ok {
 				break out
 			}
-			fmt.Printf("asgd\n")
 			for _, token := range doc {
 				m[token] = m[token] + 1
-				fmt.Printf(token + "\n")
+				fmt.Printf(token +
+					"\n")
 			}
-			fmt.Printf("looping again\n")
 		}
 	}
-	fmt.Printf("before channel\n")
 	t.TermFreq <- m
-	fmt.Printf("method closed")
 	close(t.TermFreq)
 	t.wg.Done()
 }
 
 func (t *TermFrequencyCalculator) literalMapReducer() map[string]int {
 	t.wg.Wait()
+	//TODO scale horizontally (find log answer)
+	//keep track of how many are <100, 100-1000, 1000-10000, 10000-100000, 100k+
 	masterMap := <-t.TermFreq
 	for i := 0; i < t.numWorkers-1; i++ {
 		tempMap := <-t.TermFreq
@@ -86,5 +85,12 @@ func (t *TermFrequencyCalculator) literalMapReducer() map[string]int {
 		}
 	}
 	t.ResultMap = masterMap
+	//TODO after sending bucket sizes, wait for info
+	//from lalu stating that the buckets are created
+	//at which point you can
 	return t.ResultMap
+}
+
+func (t *TermFrequencyCalculator) bucketSorter() {
+
 }

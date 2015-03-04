@@ -9,6 +9,8 @@ It is generated from these files:
 	sse.proto
 
 It has these top-level messages:
+	XSetFilter
+	FilterAck
 	IndexData
 	IndexAck
 	CipherDoc
@@ -80,6 +82,22 @@ var BooleanSearchQuery_SearchType_value = map[string]int32{
 func (x BooleanSearchQuery_SearchType) String() string {
 	return proto.EnumName(BooleanSearchQuery_SearchType_name, int32(x))
 }
+
+type XSetFilter struct {
+	BloomFilter []byte `protobuf:"bytes,1,opt,name=bloom_filter,proto3" json:"bloom_filter,omitempty"`
+}
+
+func (m *XSetFilter) Reset()         { *m = XSetFilter{} }
+func (m *XSetFilter) String() string { return proto.CompactTextString(m) }
+func (*XSetFilter) ProtoMessage()    {}
+
+type FilterAck struct {
+	Ack bool `protobuf:"varint,1,opt,name=ack" json:"ack,omitempty"`
+}
+
+func (m *FilterAck) Reset()         { *m = FilterAck{} }
+func (m *FilterAck) String() string { return proto.CompactTextString(m) }
+func (*FilterAck) ProtoMessage()    {}
 
 type IndexData struct {
 	Type IndexData_MessageType `protobuf:"varint,1,opt,name=type,enum=sse_protos.IndexData_MessageType" json:"type,omitempty"`
@@ -286,6 +304,7 @@ type EncryptedSearchClient interface {
 	KeywordSearch(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_KeywordSearchClient, error)
 	ConjunctiveSearchRequest(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_ConjunctiveSearchRequestClient, error)
 	XTokenExchange(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_XTokenExchangeClient, error)
+	UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error)
 }
 
 type encryptedSearchClient struct {
@@ -457,6 +476,15 @@ func (x *encryptedSearchXTokenExchangeClient) Recv() (*XTokenResponse, error) {
 	return m, nil
 }
 
+func (c *encryptedSearchClient) UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error) {
+	out := new(FilterAck)
+	err := grpc.Invoke(ctx, "/sse_protos.EncryptedSearch/UploadXSetFilter", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Server API for EncryptedSearch service
 
 type EncryptedSearchServer interface {
@@ -466,6 +494,7 @@ type EncryptedSearchServer interface {
 	KeywordSearch(EncryptedSearch_KeywordSearchServer) error
 	ConjunctiveSearchRequest(EncryptedSearch_ConjunctiveSearchRequestServer) error
 	XTokenExchange(EncryptedSearch_XTokenExchangeServer) error
+	UploadXSetFilter(context.Context, *XSetFilter) (*FilterAck, error)
 }
 
 func RegisterEncryptedSearchServer(s *grpc.Server, srv EncryptedSearchServer) {
@@ -602,10 +631,27 @@ func (x *encryptedSearchXTokenExchangeServer) Recv() (*XTokenRequest, error) {
 	return m, nil
 }
 
+func _EncryptedSearch_UploadXSetFilter_Handler(srv interface{}, ctx context.Context, buf []byte) (proto.Message, error) {
+	in := new(XSetFilter)
+	if err := proto.Unmarshal(buf, in); err != nil {
+		return nil, err
+	}
+	out, err := srv.(EncryptedSearchServer).UploadXSetFilter(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "sse_protos.EncryptedSearch",
 	HandlerType: (*EncryptedSearchServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "UploadXSetFilter",
+			Handler:    _EncryptedSearch_UploadXSetFilter_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "InitializeIndex",

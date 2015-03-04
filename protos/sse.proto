@@ -13,6 +13,16 @@ service EncryptedSearch {
     rpc ConjunctiveSearchRequest(stream BooleanSearchQuery) returns (stream CipherDoc);
 
     rpc XTokenExchange(stream XTokenRequest) returns (stream XTokenResponse);
+
+    rpc UploadXSetFilter(XSetFilter) returns (FilterAck);
+}
+
+message XSetFilter {
+    bytes bloom_filter = 1;
+}
+
+message FilterAck {
+    bool ack = 1;
 }
 
 message IndexData {

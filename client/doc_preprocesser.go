@@ -77,6 +77,7 @@ out:
 			d.TfOut <- parsedTFWords
 			d.InvIndexOut <- InvIndDoc
 			d.DocEncryptOut <- doc
+			b.Reset()
 		}
 	}
 	close(d.TfOut)

@@ -1,21 +1,24 @@
 package main
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 )
 
 type TermFrequencyCalculator struct {
-	quit       chan struct{}
-	numWorkers int
-	TermFreq   chan map[string]int
-	docIn      chan []string
-	wg         sync.WaitGroup
-	ResultMap  map[string]int
-	started    int32
-	shutDown   int32
-	err        chan error
+	quit                 chan struct{}
+	numWorkers           int
+	TermFreq             chan map[string]int
+	docIn                chan []string
+	wg                   sync.WaitGroup
+	ResultMap            map[string]int
+	started              int32
+	shutDown             int32
+	err                  chan error
+	ltHunredbucketSize   int32
+	ltOneKbucketSize     int32
+	ltTenKbucketSize     int32
+	ltHundredKBucketSize int32
 }
 
 //TermFreq shoud have as many buffers as workers
@@ -53,7 +56,6 @@ func (t *TermFrequencyCalculator) frequencyWorker() {
 	m := make(map[string]int)
 out:
 	for {
-		fmt.Printf("starting loop\n")
 		select {
 		case <-t.quit:
 			break out
@@ -63,9 +65,8 @@ out:
 			}
 			for _, token := range doc {
 				m[token] = m[token] + 1
-				fmt.Printf(token +
-					"\n")
 			}
+			doc = nil
 		}
 	}
 	t.TermFreq <- m
@@ -73,7 +74,7 @@ out:
 	t.wg.Done()
 }
 
-func (t *TermFrequencyCalculator) literalMapReducer() map[string]int {
+func (t *TermFrequencyCalculator) literalMapReducer() {
 	t.wg.Wait()
 	//TODO scale horizontally (find log answer)
 	//keep track of how many are <100, 100-1000, 1000-10000, 10000-100000, 100k+
@@ -85,12 +86,75 @@ func (t *TermFrequencyCalculator) literalMapReducer() map[string]int {
 		}
 	}
 	t.ResultMap = masterMap
-	//TODO after sending bucket sizes, wait for info
-	//from lalu stating that the buckets are created
-	//at which point you can
-	return t.ResultMap
+	for _, size := range masterMap {
+		switch {
+		case size < 100:
+			t.ltHunredbucketSize++
+		case 100 < size && size < 1000:
+			t.ltOneKbucketSize++
+		case 1000 < size && size < 10000:
+			t.ltTenKbucketSize++
+		case 10000 < size && size < 100000:
+			t.ltHundredKBucketSize++
+		default:
+		}
+	}
 }
 
 func (t *TermFrequencyCalculator) bucketSorter() {
+
+	//TODO after sending bucket sizes, wait for info
+	//from lalu stating that the buckets are created
+	//at which point you can
+
+	//while this approach is kind of verbose, it avoids the expense
+	//of millions of allocations
+	ltHundredSlice := make([]string, t.ltHunredbucketSize)
+	ltOneKSlice := make([]string, t.ltOneKbucketSize)
+	ltTenKSlice := make([]string, t.ltTenKbucketSize)
+	ltHundredKSlice := make([]string, t.ltHundredKBucketSize)
+	ltHundredIndex := 0
+	ltOneKIndex := 0
+	ltTenKSIndex := 0
+	ltHundredKIndex := 0
+	for word, size := range t.ResultMap {
+		switch {
+
+		case size < 100:
+			ltHundredSlice[ltHundredIndex] = word
+			ltHundredIndex++
+		case 100 < size && size < 1000:
+			ltOneKSlice[ltOneKIndex] = word
+			ltOneKIndex++
+		case 1000 < size && size < 10000:
+			ltTenKSlice[ltTenKSIndex] = word
+			ltTenKSIndex++
+		case 10000 < size && size < 100000:
+			ltHundredKSlice[ltHundredIndex] = word
+			ltHundredKIndex++
+		}
+
+		if ltHundredIndex == 10000 {
+			z := ltHundredSlice[:ltHundredIndex]
+			ltHundredSlice = ltHundredSlice[ltHundredIndex:]
+			ltHundredIndex = 0
+
+		}
+		if ltOneKIndex == 10000 {
+			z := ltOneKSlice[:ltOneKIndex]
+			ltOneKSlice = ltOneKSlice[ltOneKIndex:]
+			ltOneKIndex = 0
+		}
+		if ltTenKSIndex == 10000 {
+			z := ltTenKSlice[:ltTenKSIndex]
+			ltTenKSlice = ltTenKSlice[ltTenKSIndex:]
+			ltTenKSIndex = 0
+		}
+		if ltHundredKIndex == 10000 {
+			z := ltHundredKSlice[:ltHundredKIndex]
+			ltHundredKSlice = ltHundredKSlice[:ltHundredKIndex]
+			ltHundredKIndex = 0
+		}
+	}
 
 }

@@ -1,10 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -13,7 +10,7 @@ type TermFrequencyCalculator struct {
 	quit       chan struct{}
 	numWorkers int
 	TermFreq   chan map[string]int
-	docIn      chan *document
+	docIn      chan []string
 	wg         sync.WaitGroup
 	ResultMap  map[string]int
 	started    int32
@@ -22,7 +19,7 @@ type TermFrequencyCalculator struct {
 }
 
 //TermFreq shoud have as many buffers as workers
-func NewTermFrequencyCalculator(numWorkers int, d chan *document) TermFrequencyCalculator {
+func NewTermFrequencyCalculator(numWorkers int, d chan []string) TermFrequencyCalculator {
 	q := make(chan struct{})
 
 	termFreq := make(chan map[string]int, numWorkers)
@@ -51,12 +48,12 @@ func (t *TermFrequencyCalculator) Stop() error {
 
 }
 
-func (t *TermFrequencyCalculator) frequencyWorker() error {
-	var bit []byte
-	b := bytes.NewBuffer(bit)
+func (t *TermFrequencyCalculator) frequencyWorker() {
 	m := make(map[string]int)
+	fmt.Printf("before loop\n")
 out:
 	for {
+		fmt.Printf("starting loop\n")
 		select {
 		case <-t.quit:
 			break out
@@ -64,24 +61,19 @@ out:
 			if !ok {
 				break out
 			}
-			_, err := io.Copy(b, doc)
-			if err != nil {
-				fmt.Printf("issue with copy\n")
-				return err
-			}
-			contents := string(b.Bytes())
-			contents = strings.Replace(contents, "\n", " ", -1)
-			tokens := strings.Split(contents, " ")
-			for _, token := range tokens {
+			fmt.Printf("asgd\n")
+			for _, token := range doc {
 				m[token] = m[token] + 1
+				fmt.Printf(token + "\n")
 			}
-			b.Reset()
+			fmt.Printf("looping again\n")
 		}
 	}
+	fmt.Printf("before channel\n")
 	t.TermFreq <- m
+	fmt.Printf("method closed")
 	close(t.TermFreq)
 	t.wg.Done()
-	return nil
 }
 
 func (t *TermFrequencyCalculator) literalMapReducer() map[string]int {

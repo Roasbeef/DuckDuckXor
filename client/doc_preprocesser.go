@@ -5,11 +5,13 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 )
 
 type DocPreprocessor struct {
 	quit          chan struct{}
+	started       int32
 	TfOut         chan []string
 	InvIndexOut   chan map[string]struct{}
 	DocEncryptOut chan *document
@@ -23,6 +25,26 @@ func NewDocPreprocessor(inp chan *document) *DocPreprocessor {
 	i := make(chan map[string]struct{})
 	t := make(chan []string)
 	return &DocPreprocessor{quit: q, TfOut: t, InvIndexOut: i, DocEncryptOut: d, input: inp}
+}
+
+func (d *DocPreprocessor) Start() error {
+
+	if atomic.AddInt32(&d.started, 1) != 1 {
+		return nil
+	}
+	d.wg.Add(2)
+	go d.partitionStreams()
+	return nil
+
+}
+
+func (d *DocPreprocessor) Stop() error {
+	if atomic.AddInt32(&d.started, 1) != 1 {
+		return nil
+	}
+	close(d.quit)
+	d.wg.Wait()
+	return nil
 }
 
 func (d *DocPreprocessor) partitionStreams() {
@@ -51,7 +73,11 @@ out:
 			d.DocEncryptOut <- doc
 		}
 	}
+	close(d.TfOut)
+	close(d.InvIndexOut)
+	close(d.DocEncryptOut)
 	d.wg.Done()
+
 }
 
 func ParseTokens(s string) []string {

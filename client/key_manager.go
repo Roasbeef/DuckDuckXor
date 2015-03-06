@@ -256,10 +256,7 @@ func inverseHashTreeKeyDerivation(masterKey [keySize]byte, numTargetKids int) ([
 		currentParent := parentQueue[0]
 		parentQueue = parentQueue[1:]
 
-		derivedKeys, err := deriveChildren(currentParent)
-		if err != nil {
-			return nil, err
-		}
+		derivedKeys := deriveChildren(currentParent)
 
 		childKeys = append(childKeys, derivedKeys...)
 		numDerived += len(derivedKeys)
@@ -270,19 +267,22 @@ func inverseHashTreeKeyDerivation(masterKey [keySize]byte, numTargetKids int) ([
 	return childKeys, nil
 }
 
-// deriveChildren...
-func deriveChildren(parent [keySize]byte) ([][keySize]byte, error) {
+// deriveChildren derives two child keys from a parent key.
+// Derivation is performed by interpreting the digest of SHA-512(parent) as
+// two 256-bit keys.
+func deriveChildren(parent [keySize]byte) [][keySize]byte {
 	children := make([][keySize]byte, 2)
 	nextLevel := sha512.Sum512(parent[:])
 
 	var childA [keySize]byte
 	var childB [keySize]byte
-	copy(nextLevel[snacl.KeySize:], childA[:])
-	copy(nextLevel[:snacl.KeySize], childB[:])
+	copy(childA[:], nextLevel[snacl.KeySize:])
+	copy(childB[:], nextLevel[:snacl.KeySize])
 
 	children[0] = childA
 	children[1] = childB
 	return children, nil
+	return children
 }
 
 // encryptChildKeys....

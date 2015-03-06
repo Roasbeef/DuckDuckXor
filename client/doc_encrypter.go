@@ -121,8 +121,8 @@ out:
 	e.wg.Done()
 }
 
-// docUploader is responsible for opening a gRPC stream to the indexing server,
-// and streaming encrypted documents as they come in.
+// docUploader is responsible for opening a gRPC stream to the document storage
+// server, and streaming encrypted documents as they come in.
 func (e *EncryptedDocStreamer) docUploader() {
 	cipherStream, err := e.client.UploadCipherDocs(context.Background())
 	if err != nil {
@@ -131,7 +131,6 @@ func (e *EncryptedDocStreamer) docUploader() {
 out:
 	for {
 		select {
-		// TODO(roasbeef): Buffer?
 		case doc, more := <-e.encryptedDocs:
 			if !more {
 				cipherStream.CloseSend()

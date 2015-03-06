@@ -30,18 +30,28 @@ func TestInverseHashTreeKeyDerivation(t *testing.T) {
 		t.Fatalf("Unable to read random number: %v", err)
 	}
 
-	derivedChildren1, err := inverseHashTreeKeyDerivation(parentKey, 2)
+	numChildren := 2
+	derivedChildren1, err := inverseHashTreeKeyDerivation(parentKey, numChildren)
 	if err != nil {
 		t.Fatalf("Unable to perform inverse hash tree derivation: %v", err)
 	}
-	derivedChildren2, err := inverseHashTreeKeyDerivation(parentKey, 2)
+	derivedChildren2, err := inverseHashTreeKeyDerivation(parentKey, numChildren)
 	if err != nil {
 		t.Fatalf("Unable to perform inverse hash tree derivation: %v", err)
 	}
 
-	if !bytes.Equal(derivedChildren1[0][:], derivedChildren2[0][:]) {
-		t.Fatalf("Derivation is not deterministic %v vs %v",
-			derivedChildren1[0], derivedChildren2[0])
+	// Should produce the correct number of child keys.
+	if len(derivedChildren1) != numChildren || len(derivedChildren2) != numChildren {
+		t.Fatalf("Derivation produced incorrect number of children: ",
+			"got %v need %v", len(derivedChildren1), numChildren)
+	}
+
+	// Ensure that we get the same child nodes.
+	for i := 0; i < numChildren; i++ {
+		if !bytes.Equal(derivedChildren1[i][:], derivedChildren2[i][:]) {
+			t.Fatalf("Derivation is not deterministic %v vs %v",
+				derivedChildren1[i], derivedChildren2[i])
+		}
 	}
 
 	fmt.Println(derivedChildren1, derivedChildren2)

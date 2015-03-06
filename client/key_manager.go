@@ -201,7 +201,7 @@ func (k *KeyManager) performInitialSetup(passphrase []byte) error {
 
 // updateKeyMap upadtes our internal keymap with each of the derived keys.
 func (k *KeyManager) updateKeyMap(keys [][keySize]byte) {
-	for i := 0; i < keySize; i++ {
+	for i := 0; i < numKeys; i++ {
 		k.keyMap[KeyType(i)] = keys[i]
 	}
 }

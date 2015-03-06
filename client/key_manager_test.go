@@ -19,17 +19,19 @@ func TestRegularSetup(t *testing.T) {
 }
 
 func TestUpdateKeyMap(t *testing.T) {
-}
+	fakeKeys := makeFakeKeys()
 
-func makeFakeKeys() [][keySize]byte {
-	repeats := []string{"a", "b", "c", "d", "e", "f"}
-	keys := make([][keySize]byte, 6)
-	for i, r := range repeats {
-		var a [keySize]byte
-		copy(a[:], []byte(strings.Repeat(r, 32)))
-		keys[i] = a
+	k := &KeyManager{keyMap: make(map[KeyType][keySize]byte)}
+	k.updateKeyMap(fakeKeys)
+
+	// Ensure the keys have properly been set.
+	for i, key := range fakeKeys {
+		setKey := k.keyMap[KeyType(i)]
+		if !(bytes.Equal(key[:], setKey[:])) {
+			t.Fatalf("Got incorrect key. Need %v, got %v", key,
+				setKey)
+		}
 	}
-	return keys
 }
 
 func TestLoadAndStoreEncryptedKeys(t *testing.T) {
@@ -173,4 +175,15 @@ func TestEncryptChildKeys(t *testing.T) {
 }
 
 func TestRequestHandler(t *testing.T) {
+}
+
+func makeFakeKeys() [][keySize]byte {
+	repeats := []string{"a", "b", "c", "d", "e", "f"}
+	keys := make([][keySize]byte, 6)
+	for i, r := range repeats {
+		var a [keySize]byte
+		copy(a[:], []byte(strings.Repeat(r, 32)))
+		keys[i] = a
+	}
+	return keys
 }

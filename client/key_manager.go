@@ -64,6 +64,7 @@ type KeyManager struct {
 
 // NewKeyManager.....
 func NewKeyManager(db *bolt.DB, passphrase []byte) (*KeyManager, error) {
+	var err error
 	k := &KeyManager{
 		db:          db,
 		quit:        make(chan struct{}),
@@ -75,7 +76,7 @@ func NewKeyManager(db *bolt.DB, passphrase []byte) (*KeyManager, error) {
 	// Otherwise, perform the derivation, and set-up steps for our keys.
 	// TODO(roasbeef): Pass this in instead?
 	var found bool
-	err := db.View(func(tx *bolt.Tx) error {
+	err = db.View(func(tx *bolt.Tx) error {
 		keyBucket := tx.Bucket(cryptoKeyBucket)
 		found = !(keyBucket == nil)
 		return nil
@@ -85,13 +86,13 @@ func NewKeyManager(db *bolt.DB, passphrase []byte) (*KeyManager, error) {
 	}
 
 	if !found {
-		if err := k.performInitialSetup(passphrase); err != nil {
-			return nil, err
-		}
+		err = k.performInitialSetup(passphrase)
 	} else {
-		if err := k.performRegularSetup(passphrase); err != nil {
-			return nil, err
-		}
+		err = k.performRegularSetup(passphrase)
+	}
+
+	if err != nil {
+		return nil, err
 	}
 
 	return k, nil

@@ -10,6 +10,7 @@ import (
 	"github.com/conformal/btcwallet/snacl"
 )
 
+// An enum containing our various key types.
 type KeyType int
 
 const (
@@ -21,11 +22,25 @@ const (
 	DocEncKey                 // Wrapped in snacl.CryptoKey
 )
 const (
-	numKeys       = 6
-	keySize       = 32
-	keyBucketName = "cryptoKeys"
+	numKeys = 6
+	keySize = 32
 )
 
+// A helper map to quickly identify the db key for a particular crypto key.
+var keyToBoltKey = map[KeyType][]byte{
+	WTrapKey:   []byte("k_s"),
+	XTagKey:    []byte("k_x"),
+	XIndKey:    []byte("k_i"),
+	DHBlindKey: []byte("k_z"),
+	STagKey:    []byte("k_t"),
+	DocEncKey:  []byte("doc_key"),
+}
+var cryptoKeyBucket = []byte("cryptoKeys")
+
+var masterKeyName = []byte("master")
+
+// keyRequestMessage sends a message to the keyManager requesting a particular
+// crypto key.
 type keyRequestMessage struct {
 	whichKey KeyType
 	// TODO(roasbeef): BYOB everywhere?
@@ -33,11 +48,14 @@ type keyRequestMessage struct {
 	errChan   chan error // should be buffered
 }
 
-// TODO(roasbeef): Review validity of this struct
+// KeyManager handles the storage, derivation, and querying of of various
+// cryptographic keys.
 type KeyManager struct {
 	wg          sync.WaitGroup
 	keyMap      map[KeyType][keySize]byte
 	keyRequests chan keyRequestMessage
+
+	db *bolt.DB
 
 	quit     chan struct{}
 	started  int32
@@ -45,8 +63,9 @@ type KeyManager struct {
 }
 
 // NewKeyManager.....
-func NewKeyManager(db bolt.DB, passphrase []byte) (*KeyManager, error) {
+func NewKeyManager(db *bolt.DB, passphrase []byte) (*KeyManager, error) {
 	k := &KeyManager{
+		db:          db,
 		quit:        make(chan struct{}),
 		keyMap:      make(map[KeyType][keySize]byte),
 		keyRequests: make(chan keyRequestMessage),
@@ -54,119 +73,123 @@ func NewKeyManager(db bolt.DB, passphrase []byte) (*KeyManager, error) {
 
 	// If our key bucket is present, then we've already done the initial set-up.
 	// Otherwise, perform the derivation, and set-up steps for our keys.
-	// TODO(roasbeef): Refactor this
+	// TODO(roasbeef): Pass this in instead?
 	var found bool
-	if err := db.View(func(tx *bolt.Tx) error {
-		keyBucket := tx.Bucket([]byte(keyBucketName))
+	err := db.View(func(tx *bolt.Tx) error {
+		keyBucket := tx.Bucket(cryptoKeyBucket)
 		found = !(keyBucket == nil)
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 
 	if !found {
-		// Derive our master key using scrypt.
-		masterKey, err := snacl.NewSecretKey(
-			&passphrase, snacl.DefaultN, snacl.DefaultR, snacl.DefaultP,
-		)
-		if err != nil {
+		if err := k.performInitialSetup(passphrase); err != nil {
 			return nil, err
 		}
-
-		// Derive child keys from our master key. These are the keys we
-		// end up using for symmetric encryption and our PRFs.
-		var mKey [keySize]byte
-		copy(mKey[:], masterKey.Key[:])
-		childKeys, err := inverseHashTreeKeyDerivation(mKey, numKeys)
-		if err != nil {
-			return nil, err
-		}
-
-		// We never store the master key, only paramters from which we
-		// can re-derive it. This master key is used to encrypt the
-		// derived child keys when they're stored in the DB.
-		encryptedKeys, err := encryptChildKeys(masterKey, childKeys)
-		if err != nil {
-			return nil, err
-		}
-
-		serializedMasterKey := masterKey.Marshal()
-
-		// Commit the encrypted keys to the DB.
-		err = db.Update(func(tx *bolt.Tx) error {
-			b, err := tx.CreateBucket([]byte(keyBucketName))
-			if err != nil {
-				return err
-			}
-
-			// Store the encrypted master key parameters.
-			err = b.Put([]byte("master"), serializedMasterKey)
-
-			// Store each individual key
-			// TODO(roasbeef): Clean up with helper func, check each err?
-			err = b.Put([]byte("k_s"), encryptedKeys[0])
-			err = b.Put([]byte("k_x"), encryptedKeys[1])
-			err = b.Put([]byte("k_i"), encryptedKeys[2])
-			err = b.Put([]byte("k_z"), encryptedKeys[3])
-			err = b.Put([]byte("k_t"), encryptedKeys[4])
-			err = b.Put([]byte("doc_key"), encryptedKeys[5])
-			if err != nil {
-				return err
-			}
-
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		// zero out the master key, we don't need it anymore.
-		masterKey.Zero()
-		// Finally create our map, then we're all ready to go
-		k.updateKeyMap(childKeys)
 	} else {
-		// else open bucket, decrypt, all, load into memory
-		err := db.View(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte(keyBucketName))
-
-			// Grab the marshalled master key paramaters.
-			masterKeyParams := b.Get([]byte("master"))
-
-			// Attempt to unmarshall bailing on failure.
-			var masterKey snacl.SecretKey
-			if err := masterKey.Unmarshal(masterKeyParams); err != nil {
-				return err
-			}
-
-			// Try to re-derive the master key from the passed passphrase.
-			// If the passphrase is incorrect, this should fail.
-			err := masterKey.DeriveKey(&passphrase)
-			if err != nil {
-				return err
-			}
-
-			// TODO(roasbeef): Clean up
-			// Decrypt the keys and load into memory.
-			err = k.loadDBKey(b, WTrapKey, []byte("k_s"), &masterKey)
-			err = k.loadDBKey(b, XTagKey, []byte("k_x"), &masterKey)
-			err = k.loadDBKey(b, XIndKey, []byte("k_i"), &masterKey)
-			err = k.loadDBKey(b, DHBlindKey, []byte("k_z"), &masterKey)
-			err = k.loadDBKey(b, STagKey, []byte("k_t"), &masterKey)
-			err = k.loadDBKey(b, DocEncKey, []byte("doc_key"), &masterKey)
-			if err != nil {
-				return err
-			}
-
-			// Zero out the master key, it's not longer needed.
-			masterKey.Zero()
-			return nil
-		})
-		if err != nil {
+		if err := k.performRegularSetup(passphrase); err != nil {
 			return nil, err
 		}
 	}
 
 	return k, nil
+}
+
+// performInitialSetup....
+func (k *KeyManager) performRegularSetup(passphrase []byte) error {
+	// else open bucket, decrypt, all, load into memory
+	return k.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(cryptoKeyBucket)
+
+		// Grab the marshalled master key paramaters.
+		masterKeyParams := b.Get([]byte("master"))
+
+		// Attempt to unmarshall bailing on failure.
+		var masterKey snacl.SecretKey
+		if err := masterKey.Unmarshal(masterKeyParams); err != nil {
+			return err
+		}
+
+		// Try to re-derive the master key from the passed passphrase.
+		// If the passphrase is incorrect, this should fail.
+		err := masterKey.DeriveKey(&passphrase)
+		if err != nil {
+			return err
+		}
+
+		// TODO(roasbeef): Clean up, make map from enum to byte key
+		// Decrypt the keys and load into memory.
+		// err = e.loadKeysFromDB(b, &masterKey)
+		if err := k.loadDBKeys(b, &masterKey); err != nil {
+			return err
+		}
+
+		// Zero out the master key, it's not longer needed.
+		masterKey.Zero()
+		return nil
+	})
+}
+
+// performRegularSetup...
+func (k *KeyManager) performInitialSetup(passphrase []byte) error {
+	// Derive our master key using scrypt.
+	masterKey, err := snacl.NewSecretKey(
+		&passphrase, snacl.DefaultN, snacl.DefaultR, snacl.DefaultP,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Derive child keys from our master key. These are the keys we
+	// end up using for symmetric encryption and our PRFs.
+	var mKey [keySize]byte
+	copy(mKey[:], masterKey.Key[:])
+	childKeys, err := inverseHashTreeKeyDerivation(mKey, numKeys)
+	if err != nil {
+		return err
+	}
+
+	// We never store the master key, only paramters from which we
+	// can re-derive it. This master key is used to encrypt the
+	// derived child keys when they're stored in the DB.
+	encryptedKeys, err := encryptChildKeys(masterKey, childKeys)
+	if err != nil {
+		return err
+	}
+
+	serializedMasterKey := masterKey.Marshal()
+
+	// Commit the encrypted keys to the DB.
+	err = k.db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucket(cryptoKeyBucket)
+		if err != nil {
+			return err
+		}
+
+		// Store the encrypted master key parameters.
+		if err = b.Put(masterKeyName, serializedMasterKey); err != nil {
+			return nil
+		}
+
+		// Store each individual key
+		if err = k.storeEncryptedKeys(b, encryptedKeys); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// zero out the master key, we don't need it anymore.
+	masterKey.Zero()
+	// Finally create our map, then we're all ready to go
+	k.updateKeyMap(childKeys)
+
+	return nil
 }
 
 // updateKeyMap....
@@ -176,17 +199,31 @@ func (k *KeyManager) updateKeyMap(keys [][keySize]byte) {
 	}
 }
 
-// loadDBKey....
-func (k *KeyManager) loadDBKey(b *bolt.Bucket, targetKey KeyType,
-	boltKey []byte, masterKey *snacl.SecretKey) error {
-	decryptedKey, err := masterKey.Decrypt(b.Get(boltKey))
-	if err != nil {
-		return nil
+// loadDBKeys....
+func (k *KeyManager) loadDBKeys(b *bolt.Bucket, masterKey *snacl.SecretKey) error {
+	for i := 0; i < numKeys; i++ {
+		targetKey := KeyType(i)
+		dbKey := keyToBoltKey[targetKey]
+		decryptedKey, err := masterKey.Decrypt(b.Get(dbKey))
+		if err != nil {
+			return nil
+		}
+
+		var a [keySize]byte
+		copy(decryptedKey, a[:])
+		k.keyMap[targetKey] = a
 	}
 
-	var a [keySize]byte
-	copy(decryptedKey, a[:])
-	k.keyMap[targetKey] = a
+	return nil
+}
+
+// storeEncryptedKeys
+func (k *KeyManager) storeEncryptedKeys(b *bolt.Bucket, keys [][]byte) error {
+	for i := 0; i < numKeys; i++ {
+		if err := b.Put(keyToBoltKey[KeyType(i)], keys[i]); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

@@ -12,10 +12,46 @@ import (
 	"github.com/conformal/btcwallet/snacl"
 )
 
-func TestInitialKeyDerivation(t *testing.T) {
-}
+func TestInitialThenRegularSetUp(t *testing.T) {
+	// Create a new database to run tests against.
+	dbPath := "fakeTest.db"
+	db, err := bolt.Open(dbPath, 0600, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test database %v", err)
+	}
+	defer os.Remove(dbPath)
+	defer db.Close()
 
-func TestRegularSetup(t *testing.T) {
+	pass := []byte("test")
+	k := &KeyManager{db: db, keyMap: make(map[KeyType][keySize]byte)}
+	// Perform our initial setup. Should derive a new master key from the
+	// pass, derive child keys, then encrypt and store them in the DB.
+	if err := k.performInitialSetup(pass); err != nil {
+		t.Fatalf("Unable to execute initial set up %", err)
+	}
+
+	// Save the derived keys.
+	initialKeyMap := k.keyMap
+
+	// Reset the key map, and simuate a regular setup
+	k.keyMap = make(map[KeyType][keySize]byte)
+	if err := k.performRegularSetup(pass); err != nil {
+		t.Fatalf("Unable to successfully perform regular setup %v", err)
+	}
+
+	// Ensure we get back the same keys.
+	for key, keyVal := range k.keyMap {
+		originalKey := initialKeyMap[key]
+		if !bytes.Equal(keyVal[:], originalKey[:]) {
+			t.Fatalf("Got incorrect key. Need %v, got %v",
+				originalKey, keyVal)
+		}
+	}
+
+	// Test that an incorrect password doesn't allow unlock.
+	if err := k.performRegularSetup([]byte("wrong password ok")); err == nil {
+		t.Fatalf("Derivation should have failed, passed wrong password")
+	}
 }
 
 func TestUpdateKeyMap(t *testing.T) {
@@ -175,6 +211,26 @@ func TestEncryptChildKeys(t *testing.T) {
 }
 
 func TestRequestHandler(t *testing.T) {
+	fakeKeys := makeFakeKeys()
+	k := &KeyManager{
+		quit:        make(chan struct{}),
+		keyMap:      make(map[KeyType][keySize]byte),
+		keyRequests: make(chan keyRequestMessage),
+	}
+	k.updateKeyMap(fakeKeys)
+
+	k.wg.Add(1)
+	go k.requestHandler()
+
+	// Test we can retrive a proper key.
+	sTagKey := k.FetchSTagKey()
+	properSTag := k.keyMap[STagKey]
+	if !bytes.Equal(sTagKey[:], properSTag[:]) {
+		t.Fatalf("Retrived incorrect key, got %v, need %v",
+			sTagKey, k.keyMap[STagKey])
+	}
+
+	close(k.quit)
 }
 
 func makeFakeKeys() [][keySize]byte {

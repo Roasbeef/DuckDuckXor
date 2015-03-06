@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"crypto/rand"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 
+	"github.com/boltdb/bolt"
 	"github.com/conformal/btcwallet/snacl"
 )
 
@@ -18,10 +21,75 @@ func TestRegularSetup(t *testing.T) {
 func TestUpdateKeyMap(t *testing.T) {
 }
 
-func TestLoadDbKeys(t *testing.T) {
+func makeFakeKeys() [][keySize]byte {
+	repeats := []string{"a", "b", "c", "d", "e", "f"}
+	keys := make([][keySize]byte, 6)
+	for i, r := range repeats {
+		var a [keySize]byte
+		copy(a[:], []byte(strings.Repeat(r, 32)))
+		keys[i] = a
+	}
+	return keys
 }
 
-func TestStoreEncryptedKeys(t *testing.T) {
+func TestLoadAndStoreEncryptedKeys(t *testing.T) {
+	var parentKey snacl.CryptoKey
+	if _, err := rand.Read(parentKey[:]); err != nil {
+		t.Fatalf("Unable to read random number: %v", err)
+	}
+	masterKey := snacl.SecretKey{Key: &parentKey}
+
+	// Create a new database to run tests against.
+	dbPath := "fakeTest.db"
+	db, err := bolt.Open(dbPath, 0600, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test database %v", err)
+	}
+	defer os.Remove(dbPath)
+	defer db.Close()
+
+	// Make some fake keys we can easily recognize.
+	keys := makeFakeKeys()
+
+	// Encrypt them before storing.
+	encryptedKeys, err := encryptChildKeys(&masterKey, keys)
+	if err != nil {
+		t.Fatalf("Unable to encrypt child keys: %v", err)
+	}
+
+	// Store our encrypted keys.
+	k := &KeyManager{db: db, keyMap: make(map[KeyType][keySize]byte)}
+	err = k.db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(cryptoKeyBucket)
+		if err != nil {
+			return err
+		}
+		return k.storeEncryptedKeys(b, encryptedKeys)
+	})
+	if err != nil {
+		t.Fatalf("Unable to store keys: %v", err)
+	}
+
+	// Ensure that after loading and decrypting we have the same keys.
+	err = k.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(cryptoKeyBucket)
+		if err != nil {
+			return err
+		}
+		return k.loadDBKeys(b, &masterKey)
+	})
+	if err != nil {
+		t.Fatalf("Unable to load keys: %v", err)
+	}
+
+	// We should get the same keys back.
+	for i, regKey := range keys {
+		loadedKey := k.keyMap[KeyType(i)]
+		if !(bytes.Equal(regKey[:], loadedKey[:])) {
+			t.Fatalf("Got incorrect key. Need %v, got %v", regKey,
+				loadedKey)
+		}
+	}
 }
 
 func TestInverseHashTreeKeyDerivation(t *testing.T) {

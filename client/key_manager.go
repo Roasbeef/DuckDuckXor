@@ -218,7 +218,7 @@ func (k *KeyManager) loadDBKeys(b *bolt.Bucket, masterKey *snacl.SecretKey) erro
 		}
 
 		var a [keySize]byte
-		copy(decryptedKey, a[:])
+		copy(a[:], decryptedKey)
 		k.keyMap[targetKey] = a
 	}
 

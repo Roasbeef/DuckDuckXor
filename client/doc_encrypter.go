@@ -20,14 +20,12 @@ type encryptedDoc struct {
 // EncryptedDocStreamer is responsible for encrypting and sending encrypting
 // documents to the server.
 type EncryptedDocStreamer struct {
-	key           []byte
+	docKey        snacl.CryptoKey
 	encryptedDocs chan *encryptedDoc
 	docStream     chan *document
 
 	numWorkers int32
 	client     pb.EncryptedSearchClient
-
-	keyRing *KeyManager
 
 	started  int32
 	shutdown int32
@@ -36,14 +34,12 @@ type EncryptedDocStreamer struct {
 }
 
 // NewEncryptedDocStreamer creates a new EncryptedDocStreamer.
-func NewEncryptedDocStreamer(numWorkers int32, errChan chan error, aesKey []byte,
-	docStream chan *document, client pb.EncryptedSearchClient, keyRing *KeyManager) *EncryptedDocStreamer {
+func NewEncryptedDocStreamer(numWorkers int32, docKey *[keySize]byte, docStream chan *document, client pb.EncryptedSearchClient) *EncryptedDocStreamer {
 	q := make(chan struct{})
 	return &EncryptedDocStreamer{
-		key:           aesKey,
+		docKey:        snacl.CryptoKey(*docKey),
 		encryptedDocs: make(chan *encryptedDoc, numWorkers),
 		docStream:     docStream,
-		keyRing:       keyRing,
 		numWorkers:    numWorkers,
 		quit:          q,
 		client:        client,
@@ -86,9 +82,6 @@ func (e *EncryptedDocStreamer) Stop() error {
 func (e *EncryptedDocStreamer) docEncrypter() {
 	// TODO(roasbeef0: Proper re-use of buffer
 	var plainBuffer bytes.Buffer
-
-	docKey := e.keyRing.FetchDocEncKey()
-	snaclDocKey := snacl.CryptoKey(*docKey)
 out:
 	for {
 		select {
@@ -108,7 +101,7 @@ out:
 				// TODO(roasbeef): Handle failure
 			}
 
-			cipherDoc, err := snaclDocKey.Encrypt(plainBuffer.Bytes())
+			cipherDoc, err := e.docKey.Encrypt(plainBuffer.Bytes())
 			if err != nil {
 				// TODO(roasbeef): Handle failure
 			}

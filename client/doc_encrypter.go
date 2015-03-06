@@ -11,12 +11,14 @@ import (
 	"golang.org/x/net/context"
 )
 
+// encryptedDocs represents an encrypted document and its document ID.
 type encryptedDoc struct {
 	cipherText []byte
-	DocId      int32
+	DocId      int32 // TODO(roasbeef): Just changed this to a hash?
 }
 
-// EncryptedDocStreamer...
+// EncryptedDocStreamer is responsible for encrypting and sending encrypting
+// documents to the server.
 type EncryptedDocStreamer struct {
 	key           []byte
 	encryptedDocs chan *encryptedDoc
@@ -33,7 +35,7 @@ type EncryptedDocStreamer struct {
 	wg       sync.WaitGroup
 }
 
-// NewEncryptedDocStreamer...
+// NewEncryptedDocStreamer creates a new EncryptedDocStreamer.
 func NewEncryptedDocStreamer(numWorkers int32, errChan chan error, aesKey []byte,
 	docStream chan *document, client pb.EncryptedSearchClient, keyRing *KeyManager) *EncryptedDocStreamer {
 	q := make(chan struct{})
@@ -49,10 +51,11 @@ func NewEncryptedDocStreamer(numWorkers int32, errChan chan error, aesKey []byte
 }
 
 // Coordinator...
+// TODO(roasbeef): Why did we need this again?
 func (e *EncryptedDocStreamer) Coordinator() {
 }
 
-// Start...
+// Start kicks off the EncryptedDocStreamer, creating all helper goroutines.
 func (e *EncryptedDocStreamer) Start() error {
 	if atomic.AddInt32(&e.started, 1) != 1 {
 		return nil
@@ -69,7 +72,7 @@ func (e *EncryptedDocStreamer) Start() error {
 	return nil
 }
 
-// Stop...
+// Stop gracefully shuts down the encrypted doc streamer.
 func (e *EncryptedDocStreamer) Stop() error {
 	if atomic.AddInt32(&e.shutdown, 1) != 1 {
 		return nil
@@ -79,7 +82,7 @@ func (e *EncryptedDocStreamer) Stop() error {
 	return nil
 }
 
-// docEncrypter...
+// docEncrypter handles encrypting passed documents from the docStream channel.
 func (e *EncryptedDocStreamer) docEncrypter() {
 	// TODO(roasbeef0: Proper re-use of buffer
 	var plainBuffer bytes.Buffer
@@ -89,10 +92,13 @@ func (e *EncryptedDocStreamer) docEncrypter() {
 out:
 	for {
 		select {
-		case doc := <-e.docStream:
+		case doc, more := <-e.docStream:
+			if !more {
+				break out
+			}
 			doc.Seek(1, 0)
 
-			numWritten, err := io.Copy(&plainBuffer, doc)
+			_, err := io.Copy(&plainBuffer, doc)
 			if err != nil {
 				// TODO(roasbeef): Handle failure
 			}
@@ -102,7 +108,7 @@ out:
 				// TODO(roasbeef): Handle failure
 			}
 
-			cipherDoc, err := snaclDocKey.Encrypt(plainBuffer.Bytes()[:numWritten])
+			cipherDoc, err := snaclDocKey.Encrypt(plainBuffer.Bytes())
 			if err != nil {
 				// TODO(roasbeef): Handle failure
 			}
@@ -113,15 +119,17 @@ out:
 			}
 
 			// TODO(roasbeef): Needed?
-			//plainBuffer.Reset()
+			plainBuffer.Reset()
 		case <-e.quit:
 			break out
 		}
 	}
+	close(e.encryptedDocs)
 	e.wg.Done()
 }
 
-// docUploader...
+// docUploader is responsible for opening a gRPC stream to the indexing server,
+// and streaming encrypted documents as they come in.
 func (e *EncryptedDocStreamer) docUploader() {
 	cipherStream, err := e.client.UploadCipherDocs(context.Background())
 	if err != nil {
@@ -130,8 +138,9 @@ func (e *EncryptedDocStreamer) docUploader() {
 out:
 	for {
 		select {
-		case doc, ok := <-e.encryptedDocs:
-			if !ok {
+		// TODO(roasbeef): Buffer?
+		case doc, more := <-e.encryptedDocs:
+			if !more {
 				cipherStream.CloseSend()
 				break out
 			}

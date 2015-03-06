@@ -172,8 +172,12 @@ func (b *bloomMaster) Start() error {
 	if b.isFirstTime {
 		b.wg.Add(1)
 		go b.streamXFilter()
-		b.wg.Add(1)
-		go b.bloomWorker()
+
+		for i := int32(0); i < b.numWorkers; i++ {
+			b.wg.Add(1)
+			go b.bloomWorker()
+		}
+
 		b.wg.Add(1)
 		go b.freqBloomSaver()
 	}
@@ -253,7 +257,11 @@ func (b *bloomMaster) bloomWorker() {
 out:
 	for {
 		select {
-		case m := <-b.msgChan:
+		// TODO(roasbeef): Proper stoppage condition...
+		case m, more := <-b.msgChan:
+			if !more {
+				break out
+			}
 			switch msg := m.(type) {
 			case *xSetSizeInitMsg:
 				b.handleXSetInit(msg)
@@ -263,7 +271,6 @@ out:
 				b.handleFreqBucketInit(msg)
 			case *freqBucketAddMsg:
 				b.handleFreqBucketAdd(msg)
-
 			default:
 				// Invalid message type do something
 			}
@@ -294,6 +301,7 @@ out:
 			if err != nil {
 				// TODO(roasbeef): Handle error
 			}
+			break out
 		}
 	}
 	b.wg.Done()
@@ -429,7 +437,6 @@ func (b *bloomMaster) handleFreqBucketAdd(msg *freqBucketAddMsg) {
 			whichBucket: targetBucket}
 	}
 	b.bucketStatsMtx.Unlock()
-
 }
 
 // QueryWordFrequency sends a query to determine which frequency bucket a given

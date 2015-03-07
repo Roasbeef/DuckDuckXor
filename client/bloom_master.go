@@ -5,9 +5,13 @@ import (
 	"sync/atomic"
 
 	"github.com/boltdb/bolt"
+	pb "github.com/roasbeef/DuckDuckXor/protos"
 	"github.com/willf/bloom"
+	"golang.org/x/net/context"
 )
 
+// BloomFrequencyBucket represents induvidual frequency buckets that a
+// particular term can fall into.
 type BloomFrequencyBucket int
 
 const (
@@ -19,12 +23,16 @@ const (
 )
 
 const (
+	// Number of frequency buckets.
 	numBuckets = 4
-	fpRate     = float64(.000001)
+	// The false positive rate of each bloom filter.
+	fpRate = float64(.000001)
 )
 
+// The boltDB key that houses the bucket where we stored out bloom filters.
 var bloomBucketKey = []byte("blooms")
 
+// A helper map to quickly identify the key for a particular frequency bucket.
 var bucketToKey = map[BloomFrequencyBucket][]byte{
 	Below100:    []byte("b_100"),
 	Below1000:   []byte("b_1000"),
@@ -32,12 +40,16 @@ var bucketToKey = map[BloomFrequencyBucket][]byte{
 	Below100000: []byte("b_100000"),
 }
 
+// finishedBloom is sent by a bloomWorker once a particular bloom filter frequency
+// bucket becomes "full". Once this message is sent the bloomSaver can persist the
+// completed filter to disk
 type finishedBloom struct {
 	whichBucket BloomFrequencyBucket
 	filter      *bloom.BloomFilter
 }
 
-// XSetSizeInit....
+// xSetSizeInitMsg is sent by collaborators of the bloomMaster that wish to
+// create the bloom filter for the X-Set.
 type xSetSizeInitMsg struct {
 	numElements uint
 }
@@ -46,50 +58,76 @@ type xSetSizeInitMsg struct {
 // changes easier more testable. Move for xset.go?
 type xTag []byte
 
-// XSetAdd...
+// xSetAddMsg sends a message to the bloomMaster to add a list of xTags into
+// the X-Set.
 type xSetAddMsg struct {
 	xTags []xTag
 	// TODO(roasbeef): Need error chans or???
 	//errChan error
 }
 
-// FreqBucketInit....
+// freqBucketInitMsg is sent by collaborators of the bloomMaster that wish to
+// create the frequency bucket bloom filters. The map should map a bucket name
+// to the max number of elements in that bucket.
 type freqBucketInitMsg struct {
 	frequencyMap map[BloomFrequencyBucket]uint
 }
 
-// FreqBucketAdd...
+// freqBucketAddMsg sends a message to the bloomMaster to add a list of terms
+// to a particular bloom frequency bucket.
 type freqBucketAddMsg struct {
 	whichBucket BloomFrequencyBucket
 	terms       []string
 }
 
+// wordQueryRequest represents a bloom filter query. The query response will be
+// return via the passed 'resp' channel. A value of `BucketUnkown` means that
+// the word isn't contained in *any* of the frequency buckets.
 type wordQueryRequest struct {
 	query string
 	resp  chan BloomFrequencyBucket
 }
 
-// bloomMaster...
+// bloomMaster handles the initialization, creation, and coordination of all
+// actions related to bloom filters. We use bloom filters for two things: to
+// quickly identify the frequency bucket of a particular word, and to create a
+// bloom filter of the X-Set which will be sent to the server.
 type bloomMaster struct {
 	numWorkers int32
 	// TODO(roasbeef): Buffer, how large? Multiple of num workers?
 	msgChan chan interface{}
 
-	// Close after init message
+	// We use these struct channels as notification variables. Waiters do
+	// blocking read on the channel, and are woken up once close() is
+	// called on the particular channel.
 	xSetReady        chan struct{}
 	freqBucketsReady chan struct{}
+	xFilterFinished  chan struct{}
 
 	// TODO(roasbeef): make buffered of bucket size
-	finishedFreqBlooms chan finishedBloom
+	finishedFreqBlooms chan *finishedBloom
 
-	wordQueries chan wordQueryRequest
+	// Channel to send bloom filter queries over.
+	wordQueries chan *wordQueryRequest
 
-	xSetFilter *bloom.BloomFilter
+	// The bloom filter containing all xTags in the X-Set.
+	xSetFilter        *bloom.BloomFilter
+	xFinalSize        int32
+	xNumAddedElements int32
 
-	bloomFreqBuckets map[BloomFrequencyBucket]*bloom.BloomFilter
+	// The bloom filters which represent buckets of frequency ranges of
+	// each word.
+	bloomFreqBuckets  map[BloomFrequencyBucket]*bloom.BloomFilter
+	bucketStatsMtx    sync.Mutex
+	fullBucketSize    map[BloomFrequencyBucket]uint
+	currentBucketSize map[BloomFrequencyBucket]uint
 
+	// Internal variable to indicate if this is the first-time setup.
 	isFirstTime bool
 	db          *bolt.DB
+
+	// Our gRPC client.
+	client pb.EncryptedSearchClient
 
 	wg       sync.WaitGroup
 	quit     chan struct{}
@@ -98,24 +136,59 @@ type bloomMaster struct {
 }
 
 // newBloomMaster....
-func newBloomMaster(db *bolt.DB) (*bloomMaster, error) {
-	return nil, nil
+func newBloomMaster(db *bolt.DB, numWorkers int) (*bloomMaster, error) {
+	// Do we already have all the filters saved?
+	// TODO(roasbeef): Determine this at an upper layer?
+	firstTime := false
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bloomBucketKey))
+		firstTime = !(b == nil)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &bloomMaster{
+		isFirstTime:        firstTime,
+		msgChan:            make(chan interface{}, numWorkers*3),
+		xSetReady:          make(chan struct{}),
+		freqBucketsReady:   make(chan struct{}),
+		xFilterFinished:    make(chan struct{}),
+		finishedFreqBlooms: make(chan *finishedBloom, numBuckets),
+		wordQueries:        make(chan *wordQueryRequest, numBuckets),
+		bloomFreqBuckets:   make(map[BloomFrequencyBucket]*bloom.BloomFilter),
+		fullBucketSize:     make(map[BloomFrequencyBucket]uint),
+		currentBucketSize:  make(map[BloomFrequencyBucket]uint),
+	}, nil
 }
 
-// Start...
+// Start kicks off the bloomMaster and all it's helper goroutines.
 func (b *bloomMaster) Start() error {
 	if atomic.AddInt32(&b.started, 1) != 1 {
 		return nil
 	}
 
+	if b.isFirstTime {
+		b.wg.Add(1)
+		go b.streamXFilter()
+
+		for i := int32(0); i < b.numWorkers; i++ {
+			b.wg.Add(1)
+			go b.bloomWorker()
+		}
+
+		b.wg.Add(1)
+		go b.freqBloomSaver()
+	}
+
 	b.wg.Add(1)
-	// if isFirstTime...
-	//go k.streamWorker()
+	go b.queryHandler()
 
 	return nil
 }
 
-// Stop....
+// Stop shuts down the bloomMaster.
 func (b *bloomMaster) Stop() error {
 	if atomic.AddInt32(&b.shutdown, 1) != 1 {
 		return nil
@@ -131,13 +204,15 @@ func (b *bloomMaster) WaitForXSetInit() {
 	<-b.xSetReady
 }
 
-// WaitForBloomFreqInit...
+// WaitForBloomFreqInit allows workers who would like to send frequency
+// bloom filter bucket upadtes to wait until the bloom filter has been created.
 func (b *bloomMaster) WaitForBloomFreqInit() {
 	<-b.freqBucketsReady
 }
 
-// bloomSaver...
-func (b *bloomMaster) bloomSaver() {
+// bloomSaver handles saving our populated frequency bloom filter buckets to
+// disk.
+func (b *bloomMaster) freqBloomSaver() {
 	numSaved := 0
 out:
 	for numSaved < numBuckets {
@@ -176,13 +251,17 @@ out:
 }
 
 // TODO(roasbeef): Have each stage of pipeline take WG group.
-// bloomWorker...
-// TODO:maybe we should call this "message handler" or something more descriptive
+// bloomWorker handles creating and populating our two categories of
+// bloom filters.
 func (b *bloomMaster) bloomWorker() {
 out:
 	for {
 		select {
-		case m := <-b.msgChan:
+		// TODO(roasbeef): Proper stoppage condition...
+		case m, more := <-b.msgChan:
+			if !more {
+				break out
+			}
 			switch msg := m.(type) {
 			case *xSetSizeInitMsg:
 				b.handleXSetInit(msg)
@@ -199,11 +278,36 @@ out:
 			break out
 		}
 	}
-
 	b.wg.Done()
 }
 
-// queryHandler...
+// streamXFilter waits until it has been signaled that the X-Set has been
+// fully initialized. After getting this signal it opens a stream to the server
+// and sends the entire X-Set bloom filter.
+func (b *bloomMaster) streamXFilter() {
+out:
+	for {
+		select {
+		case <-b.quit:
+			break out
+		case <-b.xFilterFinished:
+			xFilterBytes, err := b.xSetFilter.GobEncode()
+			if err != nil {
+				// TODO(roasbeef): Handle error
+			}
+
+			_, err = b.client.UploadXSetFilter(context.Background(),
+				&pb.XSetFilter{BloomFilter: xFilterBytes})
+			if err != nil {
+				// TODO(roasbeef): Handle error
+			}
+			break out
+		}
+	}
+	b.wg.Done()
+}
+
+// queryHandler handles bloom filter word frequency queries.
 func (b *bloomMaster) queryHandler() {
 out:
 	for {
@@ -225,7 +329,7 @@ out:
 	b.wg.Done()
 }
 
-// InitXSet....
+// InitXSet sends a message indicating that the xSet filter should be created.
 func (b *bloomMaster) InitXSet(numElements uint) {
 	// TODO(roasbeef): Do the same thing for KeyManager.
 	// Don't send a message if we're already shutting down.
@@ -236,7 +340,8 @@ func (b *bloomMaster) InitXSet(numElements uint) {
 	b.msgChan <- req
 }
 
-// QueueXSetAdd....
+// QueueXSetAdd sends a message requesting for the passed xTags should be
+// added to the xSet bloom filter.
 func (b *bloomMaster) QueueXSetAdd(newXtags []xTag) {
 	// Don't send a message if we're already shutting down.
 	if atomic.LoadInt32(&b.shutdown) != 0 {
@@ -246,7 +351,8 @@ func (b *bloomMaster) QueueXSetAdd(newXtags []xTag) {
 	b.msgChan <- req
 }
 
-// InitFreqBuckets...
+// InitFreqBuckets sends a message indicating that the passed frequency buckets
+// be initialized with the following size.
 func (b *bloomMaster) InitFreqBuckets(freqs map[BloomFrequencyBucket]uint) {
 	// Don't send a message if we're already shutting down.
 	if atomic.LoadInt32(&b.shutdown) != 0 {
@@ -256,7 +362,8 @@ func (b *bloomMaster) InitFreqBuckets(freqs map[BloomFrequencyBucket]uint) {
 	b.msgChan <- req
 }
 
-// QueueFreqBucketAdd....
+// QueueFreqBucketAdd sends a message to the bloomMaster to add the list of
+// words to the proper frequency bucket.
 func (b *bloomMaster) QueueFreqBucketAdd(targetBucket BloomFrequencyBucket, words []string) {
 	// Don't send a message if we're already shutting down.
 	if atomic.LoadInt32(&b.shutdown) != 0 {
@@ -266,8 +373,8 @@ func (b *bloomMaster) QueueFreqBucketAdd(targetBucket BloomFrequencyBucket, word
 	b.msgChan <- req
 }
 
-// handleXSetInit
 // TODO(roasbeef): Handle re-init fail
+// handleXSetInit creates the bloom filter for the X-Set.
 func (b *bloomMaster) handleXSetInit(msg *xSetSizeInitMsg) {
 	// Create the x-set bloom filter now that we have the proper parameters.
 	b.xSetFilter = bloom.NewWithEstimates(msg.numElements, fpRate)
@@ -278,18 +385,25 @@ func (b *bloomMaster) handleXSetInit(msg *xSetSizeInitMsg) {
 	close(b.xSetReady)
 }
 
-// handleXSetAdd....
+// handleXSetAdd adds a list of xTags to the X-Set filter.
 func (b *bloomMaster) handleXSetAdd(msg *xSetAddMsg) {
 	for _, xTag := range msg.xTags {
 		b.xSetFilter.Add(xTag)
+		b.xNumAddedElements += 1
+	}
+
+	// Final element has been added, signal the streamer to begin.
+	if b.xNumAddedElements == b.xFinalSize {
+		close(b.xFilterFinished)
 	}
 }
 
-// handleFreqBucketInit...
+// handleFreqBucketInit create a bloom filter for each frequency bucket.
 func (b *bloomMaster) handleFreqBucketInit(msg *freqBucketInitMsg) {
 	for bucketRange, targetSize := range msg.frequencyMap {
 		filter := bloom.NewWithEstimates(targetSize, fpRate)
 		b.bloomFreqBuckets[bucketRange] = filter
+		b.fullBucketSize[bucketRange] = targetSize
 	}
 
 	// Notify any upstream workers that are waiting for the initialization of
@@ -298,24 +412,37 @@ func (b *bloomMaster) handleFreqBucketInit(msg *freqBucketInitMsg) {
 	close(b.freqBucketsReady)
 }
 
-// handleFreqBucketAdd....
+// handleFreqBucketAdd adds a list of words to a particular frequency bucket.
+// If after adding all the passed strings to the bloomfilter to bucket is full,
+// then we also send the finished bucket off so it can be written to disk.
 func (b *bloomMaster) handleFreqBucketAdd(msg *freqBucketAddMsg) {
-	bucket, ok := b.bloomFreqBuckets[msg.whichBucket]
+	numAdded := uint(0)
+	targetBucket := msg.whichBucket
+	bucket, ok := b.bloomFreqBuckets[targetBucket]
 	if !ok {
 		return
 	}
 
 	for _, term := range msg.terms {
 		bucket.Add([]byte(term))
+		numAdded++
 	}
 
+	// TODO(roasbeef): race condition here?
+	// Send off the finished bloom filter if the bucket is now full.
+	b.bucketStatsMtx.Lock()
+	b.currentBucketSize[targetBucket] += numAdded
+	if b.fullBucketSize[targetBucket] == b.currentBucketSize[targetBucket] {
+		b.finishedFreqBlooms <- &finishedBloom{filter: bucket,
+			whichBucket: targetBucket}
+	}
+	b.bucketStatsMtx.Unlock()
 }
 
-// QueryWordFrequency....
+// QueryWordFrequency sends a query to determine which frequency bucket a given
+// word is a member of.
 func (b *bloomMaster) QueryWordFrequency(word string) BloomFrequencyBucket {
-	query := wordQueryRequest{query: word, resp: make(chan BloomFrequencyBucket)}
-
+	query := &wordQueryRequest{query: word, resp: make(chan BloomFrequencyBucket)}
 	b.wordQueries <- query
-
 	return <-query.resp
 }

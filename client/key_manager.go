@@ -10,6 +10,7 @@ import (
 	"github.com/conformal/btcwallet/snacl"
 )
 
+// An enum containing our various key types.
 type KeyType int
 
 const (
@@ -21,11 +22,25 @@ const (
 	DocEncKey                 // Wrapped in snacl.CryptoKey
 )
 const (
-	numKeys       = 6
-	keySize       = 32
-	keyBucketName = "cryptoKeys"
+	numKeys = 6
+	keySize = 32
 )
 
+// A helper map to quickly identify the db key for a particular crypto key.
+var keyToBoltKey = map[KeyType][]byte{
+	WTrapKey:   []byte("k_s"),
+	XTagKey:    []byte("k_x"),
+	XIndKey:    []byte("k_i"),
+	DHBlindKey: []byte("k_z"),
+	STagKey:    []byte("k_t"),
+	DocEncKey:  []byte("doc_key"),
+}
+var cryptoKeyBucket = []byte("cryptoKeys")
+
+var masterKeyName = []byte("master")
+
+// keyRequestMessage sends a message to the keyManager requesting a particular
+// crypto key.
 type keyRequestMessage struct {
 	whichKey KeyType
 	// TODO(roasbeef): BYOB everywhere?
@@ -33,20 +48,27 @@ type keyRequestMessage struct {
 	errChan   chan error // should be buffered
 }
 
-// TODO(roasbeef): Review validity of this struct
+// KeyManager handles the storage, derivation, and querying of of various
+// cryptographic keys.
 type KeyManager struct {
 	wg          sync.WaitGroup
 	keyMap      map[KeyType][keySize]byte
 	keyRequests chan keyRequestMessage
+
+	db *bolt.DB
 
 	quit     chan struct{}
 	started  int32
 	shutdown int32
 }
 
-// NewKeyManager.....
-func NewKeyManager(db bolt.DB, passphrase []byte) (*KeyManager, error) {
+// NewKeyManager creates a new KeyManager. The KeyManager is responsible for
+// securely storing, deriving, and answering queries to retrieve our various
+// cryptographic keys.
+func NewKeyManager(db *bolt.DB, passphrase []byte) (*KeyManager, error) {
+	var err error
 	k := &KeyManager{
+		db:          db,
 		quit:        make(chan struct{}),
 		keyMap:      make(map[KeyType][keySize]byte),
 		keyRequests: make(chan keyRequestMessage),
@@ -54,144 +76,167 @@ func NewKeyManager(db bolt.DB, passphrase []byte) (*KeyManager, error) {
 
 	// If our key bucket is present, then we've already done the initial set-up.
 	// Otherwise, perform the derivation, and set-up steps for our keys.
-	// TODO(roasbeef): Refactor this
+	// TODO(roasbeef): Pass this in instead?
 	var found bool
-	if err := db.View(func(tx *bolt.Tx) error {
-		keyBucket := tx.Bucket([]byte(keyBucketName))
+	err = db.View(func(tx *bolt.Tx) error {
+		keyBucket := tx.Bucket(cryptoKeyBucket)
 		found = !(keyBucket == nil)
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 
 	if !found {
-		// Derive our master key using scrypt.
-		masterKey, err := snacl.NewSecretKey(
-			&passphrase, snacl.DefaultN, snacl.DefaultR, snacl.DefaultP,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// Derive child keys from our master key. These are the keys we
-		// end up using for symmetric encryption and our PRFs.
-		var mKey [keySize]byte
-		copy(mKey[:], masterKey.Key[:])
-		childKeys, err := inverseHashTreeKeyDerivation(mKey, numKeys)
-		if err != nil {
-			return nil, err
-		}
-
-		// We never store the master key, only paramters from which we
-		// can re-derive it. This master key is used to encrypt the
-		// derived child keys when they're stored in the DB.
-		encryptedKeys, err := encryptChildKeys(masterKey, childKeys)
-		if err != nil {
-			return nil, err
-		}
-
-		serializedMasterKey := masterKey.Marshal()
-
-		// Commit the encrypted keys to the DB.
-		err = db.Update(func(tx *bolt.Tx) error {
-			b, err := tx.CreateBucket([]byte(keyBucketName))
-			if err != nil {
-				return err
-			}
-
-			// Store the encrypted master key parameters.
-			err = b.Put([]byte("master"), serializedMasterKey)
-
-			// Store each individual key
-			// TODO(roasbeef): Clean up with helper func, check each err?
-			err = b.Put([]byte("k_s"), encryptedKeys[0])
-			err = b.Put([]byte("k_x"), encryptedKeys[1])
-			err = b.Put([]byte("k_i"), encryptedKeys[2])
-			err = b.Put([]byte("k_z"), encryptedKeys[3])
-			err = b.Put([]byte("k_t"), encryptedKeys[4])
-			err = b.Put([]byte("doc_key"), encryptedKeys[5])
-			if err != nil {
-				return err
-			}
-
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		// zero out the master key, we don't need it anymore.
-		masterKey.Zero()
-		// Finally create our map, then we're all ready to go
-		k.updateKeyMap(childKeys)
+		err = k.performInitialSetup(passphrase)
 	} else {
-		// else open bucket, decrypt, all, load into memory
-		err := db.View(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte(keyBucketName))
+		err = k.performRegularSetup(passphrase)
+	}
 
-			// Grab the marshalled master key paramaters.
-			masterKeyParams := b.Get([]byte("master"))
-
-			// Attempt to unmarshall bailing on failure.
-			var masterKey snacl.SecretKey
-			if err := masterKey.Unmarshal(masterKeyParams); err != nil {
-				return err
-			}
-
-			// Try to re-derive the master key from the passed passphrase.
-			// If the passphrase is incorrect, this should fail.
-			err := masterKey.DeriveKey(&passphrase)
-			if err != nil {
-				return err
-			}
-
-			// TODO(roasbeef): Clean up
-			// Decrypt the keys and load into memory.
-			err = k.loadDBKey(b, WTrapKey, []byte("k_s"), &masterKey)
-			err = k.loadDBKey(b, XTagKey, []byte("k_x"), &masterKey)
-			err = k.loadDBKey(b, XIndKey, []byte("k_i"), &masterKey)
-			err = k.loadDBKey(b, DHBlindKey, []byte("k_z"), &masterKey)
-			err = k.loadDBKey(b, STagKey, []byte("k_t"), &masterKey)
-			err = k.loadDBKey(b, DocEncKey, []byte("doc_key"), &masterKey)
-			if err != nil {
-				return err
-			}
-
-			// Zero out the master key, it's not longer needed.
-			masterKey.Zero()
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
+	if err != nil {
+		return nil, err
 	}
 
 	return k, nil
 }
 
-// updateKeyMap....
-func (k *KeyManager) updateKeyMap(keys [][keySize]byte) {
-	for i := 0; i < keySize; i++ {
-		k.keyMap[KeyType(i)] = keys[i]
-	}
+// performInitialSetup peforms regular setup of the KeyManager. In order to
+// carry out this regular setup, we attempt to re-derive the master key from
+// the passed passphrase. If this fails, then we have the incorrect passphrase.
+// Otherwise, we retrieve the stored child keys, decrypt and store them.
+func (k *KeyManager) performRegularSetup(passphrase []byte) error {
+	// else open bucket, decrypt, all, load into memory
+	return k.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(cryptoKeyBucket)
+
+		// Grab the marshalled master key paramaters.
+		masterKeyParams := b.Get(masterKeyName)
+
+		// Attempt to unmarshall bailing on failure.
+		var masterKey snacl.SecretKey
+		if err := masterKey.Unmarshal(masterKeyParams); err != nil {
+			return err
+		}
+
+		// Try to re-derive the master key from the passed passphrase.
+		// If the passphrase is incorrect, this should fail.
+		err := masterKey.DeriveKey(&passphrase)
+		if err != nil {
+			return err
+		}
+
+		// Decrypt the keys and load into memory.
+		if err := k.loadDBKeys(b, &masterKey); err != nil {
+			return err
+		}
+
+		// Zero out the master key, it's not longer needed.
+		masterKey.Zero()
+		return nil
+	})
 }
 
-// loadDBKey....
-func (k *KeyManager) loadDBKey(b *bolt.Bucket, targetKey KeyType,
-	boltKey []byte, masterKey *snacl.SecretKey) error {
-	decryptedKey, err := masterKey.Decrypt(b.Get(boltKey))
+// performRegularSetup peforms regular initialization of the KeyManager.
+// In order to initialize, we derive our initial master key from the passed
+// passphrase. We then deterministicically generated related child keys for our
+// PRFs and symmetric encryption schemes. The derived children are then
+// encrypted using the master key before being stored in the database.
+func (k *KeyManager) performInitialSetup(passphrase []byte) error {
+	// Derive our master key using scrypt.
+	masterKey, err := snacl.NewSecretKey(
+		&passphrase, snacl.DefaultN, snacl.DefaultR, snacl.DefaultP,
+	)
 	if err != nil {
-		return nil
+		return err
 	}
 
-	var a [keySize]byte
-	copy(decryptedKey, a[:])
-	k.keyMap[targetKey] = a
+	// Derive child keys from our master key. These are the keys we
+	// end up using for symmetric encryption and our PRFs.
+	var mKey [keySize]byte
+	copy(mKey[:], masterKey.Key[:])
+	childKeys, err := inverseHashTreeKeyDerivation(mKey, numKeys)
+	if err != nil {
+		return err
+	}
+
+	// We never store the master key, only paramters from which we
+	// can re-derive it. This master key is used to encrypt the
+	// derived child keys when they're stored in the DB.
+	encryptedKeys, err := encryptChildKeys(masterKey, childKeys)
+	if err != nil {
+		return err
+	}
+
+	serializedMasterKey := masterKey.Marshal()
+
+	// Commit the encrypted keys to the DB.
+	err = k.db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucket(cryptoKeyBucket)
+		if err != nil {
+			return err
+		}
+		// Store the encrypted master key parameters.
+		if err = b.Put(masterKeyName, serializedMasterKey); err != nil {
+			return nil
+		}
+
+		// Store each individual key
+		if err = k.storeEncryptedKeys(b, encryptedKeys); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// zero out the master key, we don't need it anymore.
+	masterKey.Zero()
+	// Finally create our map, then we're all ready to go
+	k.updateKeyMap(childKeys)
 
 	return nil
 }
 
-// TODO(roasbeef): Generalize...
+// updateKeyMap upadtes our internal keymap with each of the derived keys.
+func (k *KeyManager) updateKeyMap(keys [][keySize]byte) {
+	for i := 0; i < numKeys; i++ {
+		k.keyMap[KeyType(i)] = keys[i]
+	}
+}
+
+// loadDBKeys loads all of our cryptographic keys from the passed boltDB bucket.
+// Each key is decrypted using the master key before its loaded into our key map.
+func (k *KeyManager) loadDBKeys(b *bolt.Bucket, masterKey *snacl.SecretKey) error {
+	for i := 0; i < numKeys; i++ {
+		targetKey := KeyType(i)
+		dbKey := keyToBoltKey[targetKey]
+		decryptedKey, err := masterKey.Decrypt(b.Get(dbKey))
+		if err != nil {
+			return nil
+		}
+
+		var a [keySize]byte
+		copy(a[:], decryptedKey)
+		k.keyMap[targetKey] = a
+	}
+
+	return nil
+}
+
+// storeEncryptedKeys stores each encrypted child key in the passed botlDB
+// bucket.
+func (k *KeyManager) storeEncryptedKeys(b *bolt.Bucket, keys [][]byte) error {
+	for i := 0; i < numKeys; i++ {
+		if err := b.Put(keyToBoltKey[KeyType(i)], keys[i]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // inverseHashTreeKeyDerivation.....
 // We use a derivation technique based on Merkle Trees. However, we instead
 // add a twist building the tree from the top down. The master key serves as
@@ -218,10 +263,7 @@ func inverseHashTreeKeyDerivation(masterKey [keySize]byte, numTargetKids int) ([
 		currentParent := parentQueue[0]
 		parentQueue = parentQueue[1:]
 
-		derivedKeys, err := deriveChildren(currentParent)
-		if err != nil {
-			return nil, err
-		}
+		derivedKeys := deriveChildren(currentParent)
 
 		childKeys = append(childKeys, derivedKeys...)
 		numDerived += len(derivedKeys)
@@ -232,22 +274,26 @@ func inverseHashTreeKeyDerivation(masterKey [keySize]byte, numTargetKids int) ([
 	return childKeys, nil
 }
 
-// deriveChildren...
-func deriveChildren(parent [keySize]byte) ([][keySize]byte, error) {
+// deriveChildren derives two child keys from a parent key.
+// Derivation is performed by interpreting the digest of SHA-512(parent) as
+// two 256-bit keys.
+func deriveChildren(parent [keySize]byte) [][keySize]byte {
 	children := make([][keySize]byte, 2)
 	nextLevel := sha512.Sum512(parent[:])
 
 	var childA [keySize]byte
 	var childB [keySize]byte
-	copy(nextLevel[snacl.KeySize:], childA[:])
-	copy(nextLevel[:snacl.KeySize], childB[:])
+	copy(childA[:], nextLevel[snacl.KeySize:])
+	copy(childB[:], nextLevel[:snacl.KeySize])
 
 	children[0] = childA
 	children[1] = childB
-	return children, nil
+	return children
 }
 
-// encryptChildKeys....
+// encryptChildKeys encrypts each of the passed serialized child keys using the
+// masterKey. Each child key should have been deterministicically generated from
+// the masterKey.
 func encryptChildKeys(masterKey *snacl.SecretKey, serializedKeys [][keySize]byte) ([][]byte, error) {
 	encryptedKeys := make([][]byte, len(serializedKeys))
 	for i, key := range serializedKeys {
@@ -260,6 +306,7 @@ func encryptChildKeys(masterKey *snacl.SecretKey, serializedKeys [][keySize]byte
 	return encryptedKeys, nil
 }
 
+// Start kicks off the KeyManager starting any helper goroutines.
 func (k *KeyManager) Start() error {
 	if atomic.AddInt32(&k.started, 1) != 1 {
 		return nil
@@ -271,6 +318,7 @@ func (k *KeyManager) Start() error {
 	return nil
 }
 
+// Stop gracefully stops the KeyManager and its related helper goroutines.
 func (k *KeyManager) Stop() error {
 	if atomic.AddInt32(&k.shutdown, 1) != 1 {
 		return nil
@@ -280,6 +328,7 @@ func (k *KeyManager) Stop() error {
 	return nil
 }
 
+// requestHandler handles incoming requests for cryptographic keys.
 func (k *KeyManager) requestHandler() {
 out:
 	for {
@@ -299,6 +348,8 @@ out:
 	k.wg.Done()
 }
 
+// FetchDocEncKey retrieves they key designated for encrypting our corpus of
+// documents.
 func (k *KeyManager) FetchDocEncKey() *[keySize]byte {
 	resp := make(chan *[keySize]byte)
 	req := keyRequestMessage{whichKey: WTrapKey, replyChan: resp}
@@ -307,6 +358,9 @@ func (k *KeyManager) FetchDocEncKey() *[keySize]byte {
 	return <-resp
 }
 
+// FetchWTrapKey retrieves the key designated for generating wtraps via aPRF.
+// These wtraps are then used to uniquely encrypt a document ID for a
+// particular word.
 func (k *KeyManager) FetchWTrapKey() *[keySize]byte {
 	resp := make(chan *[keySize]byte)
 	req := keyRequestMessage{whichKey: WTrapKey, replyChan: resp}
@@ -315,6 +369,7 @@ func (k *KeyManager) FetchWTrapKey() *[keySize]byte {
 	return <-resp
 }
 
+// FetchXTagKey retrieves the key designated for generating an xtrap via a PRF.
 func (k *KeyManager) FetchXTagKey() *[keySize]byte {
 	resp := make(chan *[keySize]byte)
 	req := keyRequestMessage{whichKey: XTagKey, replyChan: resp}
@@ -323,7 +378,7 @@ func (k *KeyManager) FetchXTagKey() *[keySize]byte {
 	return <-resp
 }
 
-// FetchXIndKey....
+// FetchXIndKey retrieves the key designated for generating xind's via a PRF.
 func (k *KeyManager) FetchXIndKey() *[keySize]byte {
 	resp := make(chan *[keySize]byte)
 	req := keyRequestMessage{whichKey: XIndKey, replyChan: resp}
@@ -332,7 +387,8 @@ func (k *KeyManager) FetchXIndKey() *[keySize]byte {
 	return <-resp
 }
 
-// FetchDHBlindKey....
+// FetchDHBlindKey retrieves the key designated for generating tokens used
+// for diffie-helman blind exponentation in the OXT protocol.
 func (k *KeyManager) FetchDHBlindKey() *[keySize]byte {
 	resp := make(chan *[keySize]byte)
 	req := keyRequestMessage{whichKey: DHBlindKey, replyChan: resp}
@@ -341,7 +397,7 @@ func (k *KeyManager) FetchDHBlindKey() *[keySize]byte {
 	return <-resp
 }
 
-// FetchSTagKey...
+// FetchSTagKey retrieves the key designated for creating s-tags.
 func (k *KeyManager) FetchSTagKey() *[keySize]byte {
 	resp := make(chan *[keySize]byte)
 	req := keyRequestMessage{whichKey: STagKey, replyChan: resp}

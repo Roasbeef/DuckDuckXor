@@ -124,8 +124,8 @@ func (t *TermFrequencyCalculator) initBloomFilterBuckets() {
 }
 
 func (t *TermFrequencyCalculator) populateBloomFilters() {
-
-	//at which point you can
+	// Block and wait until the bloom filters have been created.
+	t.bloomFilterManager.WaitForBloomFreqInit()
 
 	//while this approach is kind of verbose, it avoids the expense
 	//of millions of allocations

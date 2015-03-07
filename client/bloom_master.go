@@ -177,6 +177,7 @@ out:
 
 // TODO(roasbeef): Have each stage of pipeline take WG group.
 // bloomWorker...
+// TODO:maybe we should call this "message handler" or something more descriptive
 func (b *bloomMaster) bloomWorker() {
 out:
 	for {

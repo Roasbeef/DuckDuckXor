@@ -12,23 +12,26 @@ type InvertedIndexCalculator struct {
 	ResultInvIndex      map[string]int32
 	finalIndexEntries   chan map[string]int32
 	finalCounterEntries chan int
+	TsetIndex           map[string]int
+	mostRecentDoc       map[string]int
 	ResultCount         int
 	docIn               chan *InvIndexDocument
 	wg                  sync.WaitGroup
 	started             int32
 	numWorkers          int
+	bloomMaster         *bloomMaster
 }
 
 func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndexDocument, numWorkers int) InvertedIndexCalculator {
 	q := make(chan struct{})
-
+	//TODO pass in a bloom filter
 	finalIndexEntries := make(chan map[string]int32, numWorkers)
 	return InvertedIndexCalculator{quit: q, finalIndexEntries: finalIndexEntries, docIn: docs, numWorkers: numWorkers}
 
 }
 
 func (i *InvertedIndexCalculator) finalIndexEntriesWorker() {
-	mostRecentDoc := make(map[string]int32)
+	lastTermInDocument := make(map[string]int32)
 	counter := 0
 	//this count assures that if mostRecentDoc gets too large we perform GC
 out:
@@ -36,15 +39,19 @@ out:
 		select {
 		case <-i.quit:
 			break out
-		case doc := <-i.docIn:
+		case doc, more := <-i.docIn:
+			if !more {
+				break out
+			}
 			currentID := doc.DocId
 			for token := range doc.Words {
-				mostRecentDoc[token] = maxInt(mostRecentDoc[token], currentID)
+				lastTermInDocument[token] = maxInt(lastTermInDocument[token], currentID)
 				counter++
 			}
 		}
 	}
-	i.finalIndexEntries <- mostRecentDoc
+	i.finalCounterEntries <- counter
+	i.finalIndexEntries <- lastTermInDocument
 	i.wg.Done()
 }
 
@@ -56,7 +63,7 @@ func maxInt(a int32, b int32) int32 {
 	return b
 }
 
-func (i *InvertedIndexCalculator) invIndexMapReduce() map[string]int32 {
+func (i *InvertedIndexCalculator) invIndexMapReduce() {
 	i.wg.Wait()
 	//TODO create a counter that returns total number of word->docID pairs
 	//also add logging
@@ -70,7 +77,8 @@ func (i *InvertedIndexCalculator) invIndexMapReduce() map[string]int32 {
 		}
 		masterCounter += tempCount
 	}
+	//TODO rename ResultInvIndex
+
 	i.ResultInvIndex = masterMap
-	i.ResultCount = masterCounter
-	return i.ResultInvIndex
+	i.bloomMaster.InitXSet(uint(masterCounter))
 }

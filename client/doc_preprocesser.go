@@ -14,12 +14,19 @@ type InvIndexDocument struct {
 	DocId int32
 }
 
+type XSetGenDocument struct {
+	Words map[string]struct{}
+	DocId int32
+}
+
 type DocPreprocessor struct {
 	quit          chan struct{}
 	started       int32
+	shutdown      int32
 	TfOut         chan []string
 	InvIndexOut   chan *InvIndexDocument
 	DocEncryptOut chan *document
+	XsetGenOut    chan *XSetGenDocument
 	input         chan *document
 	wg            sync.WaitGroup
 }
@@ -28,8 +35,9 @@ func NewDocPreprocessor(inp chan *document) *DocPreprocessor {
 	q := make(chan struct{})
 	d := make(chan *document)
 	i := make(chan *InvIndexDocument)
+	x := make(chan *XSetGenDocument)
 	t := make(chan []string)
-	return &DocPreprocessor{quit: q, TfOut: t, InvIndexOut: i, DocEncryptOut: d, input: inp}
+	return &DocPreprocessor{quit: q, TfOut: t, InvIndexOut: i, DocEncryptOut: d, XsetGenOut: x, input: inp}
 }
 
 func (d *DocPreprocessor) Start() error {
@@ -37,14 +45,14 @@ func (d *DocPreprocessor) Start() error {
 	if atomic.AddInt32(&d.started, 1) != 1 {
 		return nil
 	}
-	d.wg.Add(2)
+	d.wg.Add(1)
 	go d.partitionStreams()
 	return nil
 
 }
 
 func (d *DocPreprocessor) Stop() error {
-	if atomic.AddInt32(&d.started, 1) != 1 {
+	if atomic.AddInt32(&d.shutdown, 1) != 1 {
 		return nil
 	}
 	close(d.quit)
@@ -74,15 +82,18 @@ out:
 				invIndexMap[token] = struct{}{}
 			}
 			InvIndDoc := &InvIndexDocument{invIndexMap, doc.DocId}
+			XSetDoc := &XSetGenDocument{invIndexMap, doc.DocId}
 			d.TfOut <- parsedTFWords
 			d.InvIndexOut <- InvIndDoc
 			d.DocEncryptOut <- doc
+			d.XsetGenOut <- XSetDoc
 			b.Reset()
 		}
 	}
 	close(d.TfOut)
 	close(d.InvIndexOut)
 	close(d.DocEncryptOut)
+	close(d.XsetGenOut)
 	d.wg.Done()
 
 }

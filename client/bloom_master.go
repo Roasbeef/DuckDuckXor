@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -218,7 +219,7 @@ out:
 	for numSaved < numBuckets {
 		select {
 		case fBloom := <-b.finishedFreqBlooms:
-			err := b.db.View(func(tx *bolt.Tx) error {
+			err := b.db.Update(func(tx *bolt.Tx) error {
 				// Grab our bucket, creating if it doesn't already exist.
 				bloomBucket, err := tx.CreateBucketIfNotExists(bloomBucketKey)
 				if err != nil {
@@ -330,47 +331,51 @@ out:
 }
 
 // InitXSet sends a message indicating that the xSet filter should be created.
-func (b *bloomMaster) InitXSet(numElements uint) {
+func (b *bloomMaster) InitXSet(numElements uint) error {
 	// TODO(roasbeef): Do the same thing for KeyManager.
 	// Don't send a message if we're already shutting down.
 	if atomic.LoadInt32(&b.shutdown) != 0 {
-		return
+		return fmt.Errorf("Request ignored. Shutting Down.")
 	}
 	req := &xSetSizeInitMsg{numElements: numElements}
 	b.msgChan <- req
+	return nil
 }
 
 // QueueXSetAdd sends a message requesting for the passed xTags should be
 // added to the xSet bloom filter.
-func (b *bloomMaster) QueueXSetAdd(newXtags []xTag) {
+func (b *bloomMaster) QueueXSetAdd(newXtags []xTag) error {
 	// Don't send a message if we're already shutting down.
 	if atomic.LoadInt32(&b.shutdown) != 0 {
-		return
+		return fmt.Errorf("Request ignored. Shutting Down.")
 	}
 	req := &xSetAddMsg{xTags: newXtags}
 	b.msgChan <- req
+	return nil
 }
 
 // InitFreqBuckets sends a message indicating that the passed frequency buckets
 // be initialized with the following size.
-func (b *bloomMaster) InitFreqBuckets(freqs map[BloomFrequencyBucket]uint) {
+func (b *bloomMaster) InitFreqBuckets(freqs map[BloomFrequencyBucket]uint) error {
 	// Don't send a message if we're already shutting down.
 	if atomic.LoadInt32(&b.shutdown) != 0 {
-		return
+		return fmt.Errorf("Request ignored. Shutting Down.")
 	}
 	req := &freqBucketInitMsg{frequencyMap: freqs}
 	b.msgChan <- req
+	return nil
 }
 
 // QueueFreqBucketAdd sends a message to the bloomMaster to add the list of
 // words to the proper frequency bucket.
-func (b *bloomMaster) QueueFreqBucketAdd(targetBucket BloomFrequencyBucket, words []string) {
+func (b *bloomMaster) QueueFreqBucketAdd(targetBucket BloomFrequencyBucket, words []string) error {
 	// Don't send a message if we're already shutting down.
 	if atomic.LoadInt32(&b.shutdown) != 0 {
-		return
+		return fmt.Errorf("Request ignored. Shutting Down.")
 	}
 	req := &freqBucketAddMsg{whichBucket: targetBucket, terms: words}
 	b.msgChan <- req
+	return nil
 }
 
 // TODO(roasbeef): Handle re-init fail

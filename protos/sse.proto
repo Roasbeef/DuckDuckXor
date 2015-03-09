@@ -5,7 +5,7 @@ package sse_protos;
 service EncryptedSearch {
     rpc UploadTSet(stream TSetFragment) returns (TSetAck);
 
-    rpc UploadXSet(XSetFilter) returns (FilterAck);
+    rpc UploadXSetFilter(XSetFilter) returns (FilterAck);
 
     rpc UploadCipherDocs(stream CipherDoc) returns (CipherDocAck);
 
@@ -15,7 +15,6 @@ service EncryptedSearch {
 
     rpc XTokenExchange(stream XTokenRequest) returns (stream XTokenResponse);
 
-    rpc UploadXSetFilter(XSetFilter) returns (FilterAck);
 }
 
 message TSetFragment {
@@ -32,8 +31,8 @@ message TSetFragment {
     map<string, bytes> t_tuples = 1;
 }
 
-// g^( F_p(K_x, w) * xind ) 
 message XSetFilter {
+    // filter of g^( F_p(K_x, w) * xind ) 
     bytes bloom_filter = 1;
 }
 

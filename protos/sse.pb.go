@@ -81,8 +81,8 @@ func (m *TSetFragment) GetTTuples() map[string][]byte {
 	return nil
 }
 
-// g^( F_p(K_x, w) * xind )
 type XSetFilter struct {
+	// filter of g^( F_p(K_x, w) * xind )
 	BloomFilter []byte `protobuf:"bytes,1,opt,name=bloom_filter,proto3" json:"bloom_filter,omitempty"`
 }
 
@@ -246,12 +246,11 @@ func init() {
 
 type EncryptedSearchClient interface {
 	UploadTSet(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadTSetClient, error)
-	UploadXSet(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error)
+	UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error)
 	UploadCipherDocs(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadCipherDocsClient, error)
 	KeywordSearch(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_KeywordSearchClient, error)
 	ConjunctiveSearchRequest(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_ConjunctiveSearchRequestClient, error)
 	XTokenExchange(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_XTokenExchangeClient, error)
-	UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error)
 }
 
 type encryptedSearchClient struct {
@@ -296,9 +295,9 @@ func (x *encryptedSearchUploadTSetClient) CloseAndRecv() (*TSetAck, error) {
 	return m, nil
 }
 
-func (c *encryptedSearchClient) UploadXSet(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error) {
+func (c *encryptedSearchClient) UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error) {
 	out := new(FilterAck)
-	err := grpc.Invoke(ctx, "/sse_protos.EncryptedSearch/UploadXSet", in, out, c.cc, opts...)
+	err := grpc.Invoke(ctx, "/sse_protos.EncryptedSearch/UploadXSetFilter", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -432,25 +431,15 @@ func (x *encryptedSearchXTokenExchangeClient) Recv() (*XTokenResponse, error) {
 	return m, nil
 }
 
-func (c *encryptedSearchClient) UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error) {
-	out := new(FilterAck)
-	err := grpc.Invoke(ctx, "/sse_protos.EncryptedSearch/UploadXSetFilter", in, out, c.cc, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // Server API for EncryptedSearch service
 
 type EncryptedSearchServer interface {
 	UploadTSet(EncryptedSearch_UploadTSetServer) error
-	UploadXSet(context.Context, *XSetFilter) (*FilterAck, error)
+	UploadXSetFilter(context.Context, *XSetFilter) (*FilterAck, error)
 	UploadCipherDocs(EncryptedSearch_UploadCipherDocsServer) error
 	KeywordSearch(EncryptedSearch_KeywordSearchServer) error
 	ConjunctiveSearchRequest(EncryptedSearch_ConjunctiveSearchRequestServer) error
 	XTokenExchange(EncryptedSearch_XTokenExchangeServer) error
-	UploadXSetFilter(context.Context, *XSetFilter) (*FilterAck, error)
 }
 
 func RegisterEncryptedSearchServer(s *grpc.Server, srv EncryptedSearchServer) {
@@ -483,12 +472,12 @@ func (x *encryptedSearchUploadTSetServer) Recv() (*TSetFragment, error) {
 	return m, nil
 }
 
-func _EncryptedSearch_UploadXSet_Handler(srv interface{}, ctx context.Context, buf []byte) (proto.Message, error) {
+func _EncryptedSearch_UploadXSetFilter_Handler(srv interface{}, ctx context.Context, buf []byte) (proto.Message, error) {
 	in := new(XSetFilter)
 	if err := proto.Unmarshal(buf, in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(EncryptedSearchServer).UploadXSet(ctx, in)
+	out, err := srv.(EncryptedSearchServer).UploadXSetFilter(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -599,26 +588,10 @@ func (x *encryptedSearchXTokenExchangeServer) Recv() (*XTokenRequest, error) {
 	return m, nil
 }
 
-func _EncryptedSearch_UploadXSetFilter_Handler(srv interface{}, ctx context.Context, buf []byte) (proto.Message, error) {
-	in := new(XSetFilter)
-	if err := proto.Unmarshal(buf, in); err != nil {
-		return nil, err
-	}
-	out, err := srv.(EncryptedSearchServer).UploadXSetFilter(ctx, in)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "sse_protos.EncryptedSearch",
 	HandlerType: (*EncryptedSearchServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "UploadXSet",
-			Handler:    _EncryptedSearch_UploadXSet_Handler,
-		},
 		{
 			MethodName: "UploadXSetFilter",
 			Handler:    _EncryptedSearch_UploadXSetFilter_Handler,

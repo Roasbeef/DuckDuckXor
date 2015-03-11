@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -37,7 +38,7 @@ func NewDocPreprocessor(inp chan *document) *DocPreprocessor {
 }
 
 func (d *DocPreprocessor) Start() error {
-
+	fmt.Printf("PreProcessing Documents\n")
 	if atomic.AddInt32(&d.started, 1) != 1 {
 		return nil
 	}

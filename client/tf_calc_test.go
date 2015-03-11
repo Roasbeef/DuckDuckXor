@@ -3,23 +3,18 @@ package main
 import
 //"fmt"
 
-(
-	"fmt"
-	"testing"
-)
+"testing"
 
 // creating the doc list will assume that CorpusReader
 // is already working correctly
 
 func TestFrequencyWorker(t *testing.T) {
-	fmt.Printf("abcd\n")
 	corpusreader := NewCorpusReader("./test_directory/")
 	corpusreader.Start()
 	preprocess := NewDocPreprocessor(corpusreader.DocOut)
 	preprocess.Start()
 	tf := NewTermFrequencyCalculator(1, preprocess.TfOut, nil)
 	tf.wg.Add(1)
-	fmt.Printf("start TfWorker")
 	go tf.frequencyWorker()
 	<-preprocess.InvIndexOut
 	<-preprocess.DocEncryptOut

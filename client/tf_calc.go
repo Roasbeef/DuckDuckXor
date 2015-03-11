@@ -1,13 +1,33 @@
 package main
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 )
 
+var letters = [26]string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"}
+
+type wordPair struct {
+	word string
+	tf   int
+}
+
+type bucketVals struct {
+	ltHunredbucketSize   int
+	ltOneKbucketSize     int
+	ltTenKbucketSize     int
+	ltHundredKBucketSize int
+}
 type TermFrequencyCalculator struct {
 	quit               chan struct{}
 	numWorkers         int
+	shuffleMap         map[string]chan string
+	reduceMap          map[int]chan wordPair
+	bloomSizeChan      chan bucketVals
+	bloomPopulateChan  chan bucketVals
+	bloomInitChan      chan int
+	numActiveWorkers   int32
 	TermFreq           chan map[string]int
 	docIn              chan []string
 	wg                 sync.WaitGroup
@@ -18,6 +38,7 @@ type TermFrequencyCalculator struct {
 	ltHunredbucketSize uint
 	ltOneKbucketSize   uint
 	ltTenKbucketSize   uint
+	numReducers        int
 	sync.Mutex
 	ltHundredKBucketSize uint
 	bloomFilterManager   *bloomMaster
@@ -27,7 +48,15 @@ type TermFrequencyCalculator struct {
 func NewTermFrequencyCalculator(numWorkers int, d chan []string, bm *bloomMaster) TermFrequencyCalculator {
 	q := make(chan struct{})
 	termFreq := make(chan map[string]int, numWorkers)
-	return TermFrequencyCalculator{quit: q, numWorkers: numWorkers, TermFreq: termFreq, docIn: d, bloomFilterManager: bm}
+	s := make(map[string]chan string)
+	r := make(map[int]chan wordPair)
+	size := make(chan bucketVals)
+	populate := make(chan bucketVals)
+	for i := 0; i < 26; i++ {
+		s[letters[i]] = make(chan string)
+		r[i] = make(chan wordPair)
+	}
+	return TermFrequencyCalculator{quit: q, numWorkers: numWorkers, shuffleMap: s, reduceMap: r, bloomSizeChan: size, bloomPopulateChan: populate, bloomInitChan: make(chan int), TermFreq: termFreq, docIn: d, bloomFilterManager: bm}
 }
 
 func (t *TermFrequencyCalculator) Start() error {
@@ -35,9 +64,13 @@ func (t *TermFrequencyCalculator) Start() error {
 		return nil
 	}
 	t.wg.Add(4)
-	go t.frequencyWorker()
-	go t.literalMapReducer()
-	go t.initBloomFilterBuckets()
+	t.numReducers = 26
+	go t.initReducers()
+	for i := 0; i < t.numWorkers; i++ {
+		t.numActiveWorkers++
+		go t.frequencyWorker()
+	}
+	//go t.calculateBucketSizes()
 	//TODO after initializing bloom filters, wait for info
 	//from lalu stating that the buckets are created
 	go t.populateBloomFilters()
@@ -56,71 +89,120 @@ func (t *TermFrequencyCalculator) Stop() error {
 
 }
 
+func (t *TermFrequencyCalculator) initReducers() {
+	for i := 0; i < t.numReducers; i++ {
+		go t.reducer(i)
+	}
+}
+
 func (t *TermFrequencyCalculator) frequencyWorker() {
-	m := make(map[string]int)
 out:
 	for {
 		select {
 		case <-t.quit:
 			break out
 		case doc, ok := <-t.docIn:
+			m := make(map[string]int)
 			if !ok {
 				break out
 			}
 			for _, token := range doc {
 				m[token] = m[token] + 1
 			}
-			doc = nil
+			t.TermFreq <- m
 		}
 	}
-	t.TermFreq <- m
-	close(t.TermFreq)
+	atomic.AddInt32(&t.numActiveWorkers, -1)
 	t.wg.Done()
 }
 
-func (t *TermFrequencyCalculator) literalMapReducer() {
-	t.wg.Wait()
-	var wg sync.WaitGroup
-	//TODO scale horizontally (find log answer)
-	//keep track of how many are <100, 100-1000, 1000-10000, 10000-100000, 100k+
-	masterMap := <-t.TermFreq
-	for i := 0; i < t.numWorkers-1; i++ {
-		wg.Add(1)
-		go func() {
-			tempMap := <-t.TermFreq
-			for k := range tempMap {
-				t.Lock()
-				masterMap[k] += tempMap[k]
-				t.Unlock()
+func (t *TermFrequencyCalculator) shuffler() {
+
+out:
+	for {
+		select {
+		case <-t.quit:
+			break out
+		case doc := <-t.TermFreq:
+			for key, val := range doc {
+				hashValue, err := strconv.Atoi(key)
+				if err != nil {
+					//TODO error handling
+				}
+				hashValue = hashValue % t.numReducers
+				t.reduceMap[hashValue] <- wordPair{key, val}
 			}
-			wg.Done()
-		}()
+		default:
+			if t.numActiveWorkers == 0 {
+				break out
+			}
+		}
+
 	}
-	wg.Wait()
-	t.ResultMap = masterMap
+	close(t.TermFreq)
 }
 
-func (t *TermFrequencyCalculator) initBloomFilterBuckets() {
+func (t *TermFrequencyCalculator) reducer(key int) {
+	count := 0
+	input := t.reduceMap[key]
+	subSet := make(map[string]int)
+out:
+	for {
+		select {
+		case <-t.quit:
+			break out
+		case val := <-input:
+			if subSet[val.word] == 0 {
+				count++
+			}
+			subSet[val.word] += val.tf
+		}
+	}
+
+	bloomFilterVals := t.calculateBucketSizes(subSet)
+	t.bloomSizeChan <- bloomFilterVals
+
+}
+
+func (t *TermFrequencyCalculator) bloomFilterInitializer() {
+	sem := 26
+	var b bucketVals
+out:
+	for {
+		select {
+		case a := <-t.bloomSizeChan:
+			sem--
+			b.ltHunredbucketSize += a.ltHunredbucketSize
+			b.ltOneKbucketSize += a.ltOneKbucketSize
+			b.ltTenKbucketSize += a.ltTenKbucketSize
+			b.ltHundredKBucketSize += a.ltHundredKBucketSize
+		default:
+			if sem == 0 {
+				break out
+			}
+
+		}
+	}
+	close(t.bloomSizeChan)
+}
+
+func (t *TermFrequencyCalculator) calculateBucketSizes(resultMap map[string]int) bucketVals {
 	//this function does not need parallelization, since the number of words in the english language is constant
-	for _, size := range t.ResultMap {
+	var b bucketVals
+	for _, size := range resultMap {
 		switch {
 		case size < 100:
-			t.ltHunredbucketSize++
+			b.ltHunredbucketSize++
 		case 100 < size && size < 1000:
-			t.ltOneKbucketSize++
+			b.ltOneKbucketSize++
 		case 1000 < size && size < 10000:
-			t.ltTenKbucketSize++
+			b.ltTenKbucketSize++
 		case 10000 < size && size < 100000:
-			t.ltHundredKBucketSize++
+			b.ltHundredKBucketSize++
 		default:
 		}
 	}
-	bfMap := make(map[BloomFrequencyBucket]uint)
-	bfMap[Below100] = t.ltHunredbucketSize
-	bfMap[Below1000] = t.ltOneKbucketSize
-	bfMap[Below10000] = t.ltTenKbucketSize
-	bfMap[Below100000] = t.ltHundredKBucketSize
-	t.bloomFilterManager.InitFreqBuckets(bfMap)
+	return b
 }
 
 func (t *TermFrequencyCalculator) populateBloomFilters() {

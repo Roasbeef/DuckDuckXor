@@ -6,8 +6,6 @@ import (
 	"sync/atomic"
 )
 
-var letters = [26]string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"}
-
 type wordPair struct {
 	word string
 	tf   int
@@ -22,7 +20,6 @@ type bucketVals struct {
 type TermFrequencyCalculator struct {
 	quit               chan struct{}
 	numWorkers         int
-	shuffleMap         map[string]chan string
 	reduceMap          map[int]chan wordPair
 	bloomSizeChan      chan bucketVals
 	bloomPopulateChan  chan bucketVals
@@ -48,15 +45,13 @@ type TermFrequencyCalculator struct {
 func NewTermFrequencyCalculator(numWorkers int, d chan []string, bm *bloomMaster) TermFrequencyCalculator {
 	q := make(chan struct{})
 	termFreq := make(chan map[string]int, numWorkers)
-	s := make(map[string]chan string)
 	r := make(map[int]chan wordPair)
 	size := make(chan bucketVals)
 	populate := make(chan bucketVals)
 	for i := 0; i < 26; i++ {
-		s[letters[i]] = make(chan string)
 		r[i] = make(chan wordPair)
 	}
-	return TermFrequencyCalculator{quit: q, numWorkers: numWorkers, shuffleMap: s, reduceMap: r, bloomSizeChan: size, bloomPopulateChan: populate, bloomInitChan: make(chan int), TermFreq: termFreq, docIn: d, bloomFilterManager: bm}
+	return TermFrequencyCalculator{quit: q, numWorkers: numWorkers, reduceMap: r, bloomSizeChan: size, bloomPopulateChan: populate, bloomInitChan: make(chan int), TermFreq: termFreq, docIn: d, bloomFilterManager: bm}
 }
 
 func (t *TermFrequencyCalculator) Start() error {

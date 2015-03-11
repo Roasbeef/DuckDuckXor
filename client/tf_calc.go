@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -12,10 +13,10 @@ type wordPair struct {
 }
 
 type bucketVals struct {
-	ltHunredbucketSize   int
-	ltOneKbucketSize     int
-	ltTenKbucketSize     int
-	ltHundredKBucketSize int
+	ltHunredbucketSize   uint
+	ltOneKbucketSize     uint
+	ltTenKbucketSize     uint
+	ltHundredKBucketSize uint
 }
 type TermFrequencyCalculator struct {
 	quit               chan struct{}
@@ -122,6 +123,7 @@ out:
 			for key, val := range doc {
 				hashValue, err := strconv.Atoi(key)
 				if err != nil {
+					fmt.Println("Hi! I'm an unchecked error!\n")
 					//TODO error handling
 				}
 				hashValue = hashValue % t.numReducers
@@ -134,6 +136,7 @@ out:
 		}
 
 	}
+	//TODO if multiple functions try to close a channel does that cause problems?
 	close(t.TermFreq)
 }
 
@@ -147,6 +150,7 @@ out:
 		case <-t.quit:
 			break out
 		case val := <-input:
+			//TODO why am I doing this count?
 			if subSet[val.word] == 0 {
 				count++
 			}
@@ -160,17 +164,17 @@ out:
 }
 
 func (t *TermFrequencyCalculator) bloomFilterInitializer() {
-	sem := 26
-	var b bucketVals
+	sem := t.numReducers
+	b := make(map[BloomFrequencyBucket]uint)
 out:
 	for {
 		select {
 		case a := <-t.bloomSizeChan:
 			sem--
-			b.ltHunredbucketSize += a.ltHunredbucketSize
-			b.ltOneKbucketSize += a.ltOneKbucketSize
-			b.ltTenKbucketSize += a.ltTenKbucketSize
-			b.ltHundredKBucketSize += a.ltHundredKBucketSize
+			b[Below100] += a.ltHunredbucketSize
+			b[Below1000] += a.ltOneKbucketSize
+			b[Below10000] += a.ltTenKbucketSize
+			b[Below100000] += a.ltHundredKBucketSize
 		default:
 			if sem == 0 {
 				break out
@@ -179,6 +183,8 @@ out:
 		}
 	}
 	close(t.bloomSizeChan)
+	t.bloomFilterManager.InitFreqBuckets(b)
+
 }
 
 func (t *TermFrequencyCalculator) calculateBucketSizes(resultMap map[string]int) bucketVals {

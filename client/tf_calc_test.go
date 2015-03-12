@@ -23,8 +23,10 @@ func TestFrequencyWorker(t *testing.T) {
 	go tf.frequencyWorker()
 	<-preprocess.InvIndexOut
 	<-preprocess.DocEncryptOut
+	<-preprocess.XsetGenOut
 	<-preprocess.InvIndexOut
 	<-preprocess.DocEncryptOut
+	<-preprocess.XsetGenOut
 	m1 := <-tf.TermFreq
 	if m1["yummy"] != 4 {
 		// 	//TODO ask lalu about actors hnadling multiple files
@@ -52,7 +54,8 @@ func TestLiteralMapReducer(t *testing.T) {
 	// }
 }
 
-func TestBucketSorter(t *testing.T) {
+/*
+//func TestBucketSorter(t *testing.T) {
 	m := make(map[string]int)
 	m["a"] = 30
 	m["b"] = 40
@@ -77,3 +80,4 @@ func TestBucketSorter(t *testing.T) {
 	tf.bucketSorter()
 
 }
+*/

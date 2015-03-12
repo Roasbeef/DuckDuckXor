@@ -13,8 +13,7 @@ func TestPartitionStreams(t *testing.T) {
 	c.Start()
 
 	preprocesser := NewDocPreprocessor(c.DocOut)
-	preprocesser.wg.Add(2)
-	go preprocesser.partitionStreams()
+	preprocesser.Start()
 	d := <-preprocesser.TfOut
 	testFile1 := []string{"i", "like", "banana", "sandwich", "cats", "are", "fun", "yummy", "yummy", "yummy"}
 	for i, token := range d {
@@ -24,6 +23,7 @@ func TestPartitionStreams(t *testing.T) {
 	}
 	b := <-preprocesser.InvIndexOut
 	x := <-preprocesser.DocEncryptOut
+	g := <-preprocesser.XsetGenOut
 	d = <-preprocesser.TfOut
 	testFile2 := []string{"the", "cat", "in", "the", "hat", "ate", "a", "yummy", "banana", "and", "didnt", "like", "it"}
 	for i, token := range d {
@@ -32,8 +32,11 @@ func TestPartitionStreams(t *testing.T) {
 		}
 	}
 
-	if b != nil && x != nil {
+	if g != nil && b != nil && x != nil {
 		fmt.Printf("asdgasg\n")
 	}
-
+	b = <-preprocesser.InvIndexOut
+	x = <-preprocesser.DocEncryptOut
+	g = <-preprocesser.XsetGenOut
+	preprocesser.Stop()
 }

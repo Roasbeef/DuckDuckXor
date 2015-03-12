@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"strconv"
+	"hash/fnv"
 	"sync"
 	"sync/atomic"
 )
@@ -20,8 +20,8 @@ type bucketVals struct {
 }
 type TermFrequencyCalculator struct {
 	quit               chan struct{}
-	numWorkers         int
-	reduceMap          map[int]chan wordPair
+	numWorkers         uint32
+	reduceMap          map[uint32]chan wordPair
 	bloomSizeChan      chan bucketVals
 	bloomPopulateChan  chan bucketVals
 	bloomInitChan      chan int
@@ -36,18 +36,19 @@ type TermFrequencyCalculator struct {
 	ltHunredbucketSize uint
 	ltOneKbucketSize   uint
 	ltTenKbucketSize   uint
-	numReducers        int
+	numReducers        uint32
 	sync.Mutex
 	ltHundredKBucketSize uint
 	bloomFilterManager   *bloomMaster
 }
 
 //TermFreq shoud have as many buffers as workers
-func NewTermFrequencyCalculator(numWorkers int, d chan []string, bm *bloomMaster) TermFrequencyCalculator {
+func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMaster) TermFrequencyCalculator {
 	size := make(chan bucketVals)
 	populate := make(chan bucketVals)
-	r := make(map[int]chan wordPair)
-	for i := 0; i < 26; i++ {
+	r := make(map[uint32]chan wordPair)
+	var i uint32
+	for i = 0; i < 26; i++ {
 		r[i] = make(chan wordPair)
 	}
 	return TermFrequencyCalculator{
@@ -69,7 +70,8 @@ func (t *TermFrequencyCalculator) Start() error {
 	t.wg.Add(4)
 	t.numReducers = 26
 	go t.initReducers()
-	for i := 0; i < t.numWorkers; i++ {
+	var i uint32
+	for i = 0; i < t.numWorkers; i++ {
 		t.numActiveWorkers++
 		go t.frequencyWorker()
 	}
@@ -93,7 +95,8 @@ func (t *TermFrequencyCalculator) Stop() error {
 }
 
 func (t *TermFrequencyCalculator) initReducers() {
-	for i := 0; i < t.numReducers; i++ {
+	var i uint32
+	for i = 0; i < t.numReducers; i++ {
 		go t.reducer(i)
 	}
 }
@@ -140,11 +143,9 @@ out:
 			break out
 		case doc := <-t.TermFreq:
 			for key, val := range doc {
-				hashValue, err := strconv.Atoi(key)
-				if err != nil {
-					fmt.Println("Hi! I'm an unchecked error!\n")
-					//TODO error handling
-				}
+
+				hashValue := Hash(key)
+
 				hashValue = hashValue % t.numReducers
 				t.reduceMap[hashValue] <- wordPair{key, val}
 			}
@@ -159,7 +160,14 @@ out:
 	close(t.TermFreq)
 }
 
-func (t *TermFrequencyCalculator) reducer(key int) {
+func Hash(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+
+}
+
+func (t *TermFrequencyCalculator) reducer(key uint32) {
 	count := 0
 	input := t.reduceMap[key]
 	subSet := make(map[string]int)

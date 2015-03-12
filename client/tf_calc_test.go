@@ -52,22 +52,14 @@ out:
 	}
 }
 
-func TestLiteralMapReducer(t *testing.T) {
+func TestShuffler(t *testing.T) {
+	a := make(map[string]int)
+	a["hello"] = 5
+	a["goodbye"] = 4
+	a["golly"] = 3
 
-	corpusreader := NewCorpusReader("./test_directory/testFile1.txt")
-	corpusreader.Start()
-	preprocess := NewDocPreprocessor(corpusreader.DocOut)
-	preprocess.Start()
+	//tf := NewTermFrequencyCalculator(1, nil, nil)
+	//tf.TermFreq <- a
+	//<-tf.TermFreq
 
-	// c := NewCorpusReader("./test_directory")
-	// c.Start()
-	// p := NewDocPreprocessor(c.DocOut)
-	// p.Start()
-	// tf := NewTermFrequencyCalculator(2, p.TfOut)
-	// tf.wg.Add(1)
-	// tf.frequencyWorker()
-	// a := tf.literalMapReducer()
-	// if a["yummy"] != 4 {
-	// 	t.Error("map did not reduce to a sum of values. gave value:", a["yummy"])
-	// }
 }

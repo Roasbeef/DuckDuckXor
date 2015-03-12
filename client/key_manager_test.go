@@ -43,8 +43,8 @@ func TestInitialThenRegularSetUp(t *testing.T) {
 	for key, keyVal := range k.keyMap {
 		originalKey := initialKeyMap[key]
 		if !bytes.Equal(keyVal[:], originalKey[:]) {
-			t.Fatalf("Got incorrect key. Need %v, got %v",
-				originalKey, keyVal)
+			t.Fatalf("Got incorrect key for %v. Need %v, got %v",
+				key, originalKey, keyVal)
 		}
 	}
 

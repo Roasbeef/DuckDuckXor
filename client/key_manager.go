@@ -104,7 +104,7 @@ func NewKeyManager(db *bolt.DB, passphrase []byte) (*KeyManager, error) {
 	return k, nil
 }
 
-// performInitialSetup peforms regular setup of the KeyManager. In order to
+// performRegularSetup peforms regular setup of the KeyManager. In order to
 // carry out this regular setup, we attempt to re-derive the master key from
 // the passed passphrase. If this fails, then we have the incorrect passphrase.
 // Otherwise, we retrieve the stored child keys, decrypt and store them.
@@ -140,7 +140,7 @@ func (k *KeyManager) performRegularSetup(passphrase []byte) error {
 	})
 }
 
-// performRegularSetup peforms regular initialization of the KeyManager.
+// performInitialSetup peforms initial initialization of the KeyManager.
 // In order to initialize, we derive our initial master key from the passed
 // passphrase. We then deterministicically generated related child keys for our
 // PRFs and symmetric encryption schemes. The derived children are then
@@ -211,6 +211,7 @@ func (k *KeyManager) performInitialSetup(passphrase []byte) error {
 	masterKey.Zero()
 	// Finally create our map, then we're all ready to go
 	k.updateKeyMap(childKeys)
+	k.keyMap[PermuteTweak] = permuteTweak
 
 	return nil
 }

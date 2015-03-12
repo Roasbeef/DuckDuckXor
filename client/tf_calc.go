@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"hash/fnv"
 	"sync"
 	"sync/atomic"
@@ -139,7 +138,6 @@ out:
 
 				hashValue := Hash(key)
 				hashValue = hashValue % t.numReducers
-				fmt.Println("hash value for "+key+" is ", hashValue, "\n")
 				go func(k string, v int) {
 					t.reduceMap[hashValue] <- wordPair{k, v}
 				}(key, val)

@@ -39,7 +39,6 @@ out:
 	go tf.frequencyWorker()
 	m1 := <-tf.TermFreq
 	if m1["yummy"] != 3 {
-		// 	//TODO ask lalu about actors hnadling multiple files
 		t.Error("map1 did not return correct term frequencies, \n gave answer", m1["yummy"])
 	}
 	m2 := <-tf.TermFreq
@@ -59,13 +58,10 @@ func TestShuffler(t *testing.T) {
 	tf.wg.Add(1)
 	go tf.shuffler()
 	tf.TermFreq <- a
-	fmt.Printf("pulling value\n")
-	fmt.Printf("hash of hello is: ", (Hash("hello") % tf.numReducers), "\n")
 	word := <-tf.reduceMap[Hash("hello")%tf.numReducers]
 	if word.word != "hello" || word.tf != 5 {
 		t.Error("recieved incorrect value from map: expected hello but got " + word.word)
 	}
-	fmt.Printf("sasdgadsgads\n")
 	word = <-tf.reduceMap[Hash("goodbye")%tf.numReducers]
 	if word.word != "goodbye" || word.tf != 4 {
 		t.Error("recieved incorrect value from map: expected goodbye but got " + word.word)

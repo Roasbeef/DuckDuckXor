@@ -26,9 +26,9 @@ message TSetFragment {
     // s_i = (e || y) => 
 
     // (b || L) -> (B || s_i) XOR K
-    // TODO(roasbeef): Need to decide on length split for these vals
-    // Key is hex-encoded byte array
-    map<string, bytes> t_tuples = 1;
+    bytes bucket = 1;
+    bytes label = 2;
+    bytes data = 3;
 }
 
 message XSetFilter {
@@ -46,7 +46,7 @@ message TSetAck {
 
 message CipherDoc {
     // CipherDoc ID.
-    int32 doc_id = 1;
+    uint32 doc_id = 1;
     bytes encrypted_doc= 2;
 }
 

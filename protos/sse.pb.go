@@ -65,21 +65,14 @@ func (x BooleanSearchQuery_SearchType) String() string {
 
 type TSetFragment struct {
 	// (b || L) -> (B || s_i) XOR K
-	// TODO(roasbeef): Need to decide on length split for these vals
-	// Key is hex-encoded byte array
-	TTuples map[string][]byte `protobuf:"bytes,1,rep,name=t_tuples" json:"t_tuples,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Bucket []byte `protobuf:"bytes,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
+	Label  []byte `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Data   []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
 }
 
 func (m *TSetFragment) Reset()         { *m = TSetFragment{} }
 func (m *TSetFragment) String() string { return proto.CompactTextString(m) }
 func (*TSetFragment) ProtoMessage()    {}
-
-func (m *TSetFragment) GetTTuples() map[string][]byte {
-	if m != nil {
-		return m.TTuples
-	}
-	return nil
-}
 
 type XSetFilter struct {
 	// filter of g^( F_p(K_x, w) * xind )
@@ -108,7 +101,7 @@ func (*TSetAck) ProtoMessage()    {}
 
 type CipherDoc struct {
 	// CipherDoc ID.
-	DocId        int32  `protobuf:"varint,1,opt,name=doc_id" json:"doc_id,omitempty"`
+	DocId        uint32 `protobuf:"varint,1,opt,name=doc_id" json:"doc_id,omitempty"`
 	EncryptedDoc []byte `protobuf:"bytes,2,opt,name=encrypted_doc,proto3" json:"encrypted_doc,omitempty"`
 }
 

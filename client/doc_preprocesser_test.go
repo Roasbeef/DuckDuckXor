@@ -1,9 +1,6 @@
 package main
 
-import (
-	"fmt"
-	"testing"
-)
+import "testing"
 
 func TestPartitionStreams(t *testing.T) {
 	c := NewCorpusReader("./test_directory")
@@ -21,9 +18,9 @@ func TestPartitionStreams(t *testing.T) {
 			t.Error("incorrect input: expected %s but got %s", testFile1[i], token)
 		}
 	}
-	b := <-preprocesser.InvIndexOut
-	x := <-preprocesser.DocEncryptOut
-	g := <-preprocesser.XsetGenOut
+	<-preprocesser.InvIndexOut
+	<-preprocesser.DocEncryptOut
+	<-preprocesser.XsetGenOut
 	d = <-preprocesser.TfOut
 	testFile2 := []string{"the", "cat", "in", "the", "hat", "ate", "a", "yummy", "banana", "and", "didnt", "like", "it"}
 	for i, token := range d {
@@ -32,11 +29,8 @@ func TestPartitionStreams(t *testing.T) {
 		}
 	}
 
-	if g != nil && b != nil && x != nil {
-		fmt.Printf("asdgasg\n")
-	}
-	b = <-preprocesser.InvIndexOut
-	x = <-preprocesser.DocEncryptOut
-	g = <-preprocesser.XsetGenOut
+	<-preprocesser.InvIndexOut
+	<-preprocesser.DocEncryptOut
+	<-preprocesser.XsetGenOut
 	preprocesser.Stop()
 }

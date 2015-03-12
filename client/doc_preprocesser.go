@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -14,11 +15,6 @@ type InvIndexDocument struct {
 	DocId uint32
 }
 
-type XSetGenDocument struct {
-	Words map[string]struct{}
-	DocId uint32
-}
-
 type DocPreprocessor struct {
 	quit          chan struct{}
 	started       int32
@@ -26,22 +22,23 @@ type DocPreprocessor struct {
 	TfOut         chan []string
 	InvIndexOut   chan *InvIndexDocument
 	DocEncryptOut chan *document
-	XsetGenOut    chan *XSetGenDocument
+	XsetGenOut    chan *InvIndexDocument
 	input         chan *document
 	wg            sync.WaitGroup
 }
 
 func NewDocPreprocessor(inp chan *document) *DocPreprocessor {
 	q := make(chan struct{})
-	d := make(chan *document)
-	i := make(chan *InvIndexDocument)
-	x := make(chan *XSetGenDocument)
-	t := make(chan []string)
+	//channels have buffer of size one in case of errors
+	d := make(chan *document, 1)
+	i := make(chan *InvIndexDocument, 1)
+	x := make(chan *InvIndexDocument, 1)
+	t := make(chan []string, 1)
 	return &DocPreprocessor{quit: q, TfOut: t, InvIndexOut: i, DocEncryptOut: d, XsetGenOut: x, input: inp}
 }
 
 func (d *DocPreprocessor) Start() error {
-
+	fmt.Printf("PreProcessing Documents\n")
 	if atomic.AddInt32(&d.started, 1) != 1 {
 		return nil
 	}
@@ -82,11 +79,10 @@ out:
 				invIndexMap[token] = struct{}{}
 			}
 			InvIndDoc := &InvIndexDocument{invIndexMap, doc.DocId}
-			XSetDoc := &XSetGenDocument{invIndexMap, doc.DocId}
 			d.TfOut <- parsedTFWords
 			d.InvIndexOut <- InvIndDoc
 			d.DocEncryptOut <- doc
-			d.XsetGenOut <- XSetDoc
+			d.XsetGenOut <- InvIndDoc
 			b.Reset()
 		}
 	}

@@ -42,11 +42,10 @@ func TestInitialThenRegularSetUp(t *testing.T) {
 	// Ensure we get back the same keys.
 	for key, keyVal := range k.keyMap {
 		originalKey := initialKeyMap[key]
-		//TODO fix this
-		//	if !bytes.Equal(keyVal[:], originalKey[:]) {
-		//		t.Fatalf("Got incorrect key. Need %v, got %v",
-		//			originalKey, keyVal)
-		//	}
+		if !bytes.Equal(keyVal[:], originalKey[:]) {
+			t.Fatalf("Got incorrect key for %v. Need %v, got %v",
+				key, originalKey, keyVal)
+		}
 	}
 
 	// Test that an incorrect password doesn't allow unlock.

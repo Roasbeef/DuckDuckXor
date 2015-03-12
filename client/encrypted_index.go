@@ -291,6 +291,7 @@ func calcTsetVals(stag []byte, index uint32) ([1]byte, [16]byte, [37]byte) {
 	return bucket, label, otp
 }
 
+// xorBytes...
 func xorBytes(x, y []byte) []byte {
 	out := make([]byte, len(x))
 	for i := 0; i < len(x); i++ {
@@ -299,6 +300,7 @@ func xorBytes(x, y []byte) []byte {
 	return out
 }
 
+// computeBlindingValue....
 func computeBlindingValue(prf hash.Hash, word string, blindCounter uint32) []byte {
 	// z = F_p(K_z, w || c)
 	var zBuffer bytes.Buffer
@@ -308,6 +310,7 @@ func computeBlindingValue(prf hash.Hash, word string, blindCounter uint32) []byt
 	return prf.Sum(nil)
 }
 
+// computeXind....
 func computeXind(prf hash.Hash, ind uint32) []byte {
 	// xind = F_p(K_i, ind)
 	var indBuf bytes.Buffer
@@ -316,6 +319,7 @@ func computeXind(prf hash.Hash, ind uint32) []byte {
 	return prf.Sum(nil)
 }
 
+// computeBlindedXind...
 func computeBlindedXind(z, xind []byte, groupOrder *big.Int) []byte {
 	// Turn into big ints for mod inverse calculation and mult.
 	zBig := new(big.Int).SetBytes(z)
@@ -327,6 +331,7 @@ func computeBlindedXind(z, xind []byte, groupOrder *big.Int) []byte {
 	return y.Bytes()
 }
 
+// permuteDocId...
 func permuteDocId(word string, wPrf hash.Hash, tweak []byte, docId uint32) []byte {
 	// K_e = F(k_s, w)
 	wPrf.Write([]byte(word))
@@ -348,6 +353,7 @@ func permuteDocId(word string, wPrf hash.Hash, tweak []byte, docId uint32) []byt
 	return permutedBytes
 }
 
+// calcTsetTuple....
 func calcTsetTuple(sprf hash.Hash, word string, tupleIndex uint32, permutedId, blindedXind []byte) *pb.TSetFragment {
 	// stag = F(K_t, w)
 	sprf.Write([]byte(word))

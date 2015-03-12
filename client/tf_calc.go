@@ -48,6 +48,7 @@ func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMas
 	populate := make(chan bucketVals)
 	r := make(map[uint32]chan wordPair)
 	var i uint32
+
 	for i = 0; i < 26; i++ {
 		r[i] = make(chan wordPair)
 	}
@@ -59,6 +60,7 @@ func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMas
 		bloomPopulateChan:  populate,
 		bloomInitChan:      make(chan int),
 		TermFreq:           make(chan map[string]int),
+		numReducers:        26,
 		docIn:              d,
 		bloomFilterManager: bm}
 }
@@ -68,7 +70,6 @@ func (t *TermFrequencyCalculator) Start() error {
 		return nil
 	}
 	t.wg.Add(4)
-	t.numReducers = 26
 	go t.initReducers()
 	var i uint32
 	for i = 0; i < t.numWorkers; i++ {
@@ -106,7 +107,6 @@ func (t *TermFrequencyCalculator) waitForBloomFilter() {
 }
 
 func (t *TermFrequencyCalculator) frequencyWorker() {
-	count := 1
 out:
 	for {
 		select {
@@ -117,16 +117,10 @@ out:
 			if !ok {
 				break out
 			}
-			fmt.Printf("parsing doc %d\n", count)
-			if m["yummy"] != 0 {
-				fmt.Printf("something went wrong and the map is not cleared\n")
-			}
 			for _, token := range doc {
 				m[token] = m[token] + 1
 			}
-			fmt.Printf("we found that there was %d in this sadgasasdf\n", m["yummy"])
 			t.TermFreq <- m
-			count++
 			doc = nil
 		}
 	}
@@ -135,7 +129,6 @@ out:
 }
 
 func (t *TermFrequencyCalculator) shuffler() {
-
 out:
 	for {
 		select {
@@ -145,9 +138,11 @@ out:
 			for key, val := range doc {
 
 				hashValue := Hash(key)
-
 				hashValue = hashValue % t.numReducers
-				t.reduceMap[hashValue] <- wordPair{key, val}
+				fmt.Println("hash value for "+key+" is ", hashValue, "\n")
+				go func(k string, v int) {
+					t.reduceMap[hashValue] <- wordPair{k, v}
+				}(key, val)
 			}
 		default:
 			if t.numActiveWorkers == 0 {

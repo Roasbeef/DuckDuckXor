@@ -3,7 +3,12 @@ package main
 import
 //"fmt"
 
-"testing"
+(
+	"bytes"
+	"fmt"
+	"io"
+	"testing"
+)
 
 // creating the doc list will assume that CorpusReader
 // is already working correctly
@@ -11,21 +16,39 @@ import
 func TestFrequencyWorker(t *testing.T) {
 	corpusreader := NewCorpusReader("./test_directory/")
 	corpusreader.Start()
-	preprocess := NewDocPreprocessor(corpusreader.DocOut)
-	preprocess.Start()
-	tf := NewTermFrequencyCalculator(1, preprocess.TfOut, nil)
+	terms := make(chan []string, 2)
+	var bit []byte
+	b := bytes.NewBuffer(bit)
+out:
+	for {
+		select {
+		case doc, ok := <-corpusreader.DocOut:
+			if !ok {
+				break out
+			}
+			_, err := io.Copy(b, doc)
+			if err != nil {
+				//TODO error handling
+			}
+			fmt.Println(string(b.Bytes()))
+			fmt.Println("\n")
+			fmt.Println("\n")
+			fmt.Println("\n")
+			terms <- ParseTokens(string(b.Bytes()))
+			b.Reset()
+		}
+	}
+	tf := NewTermFrequencyCalculator(1, terms, nil)
 	tf.wg.Add(1)
 	go tf.frequencyWorker()
-	<-preprocess.InvIndexOut
-	<-preprocess.DocEncryptOut
-	<-preprocess.XsetGenOut
-	<-preprocess.InvIndexOut
-	<-preprocess.DocEncryptOut
-	<-preprocess.XsetGenOut
 	m1 := <-tf.TermFreq
-	if m1["yummy"] != 4 {
+	if m1["yummy"] != 3 {
 		// 	//TODO ask lalu about actors hnadling multiple files
 		t.Error("map1 did not return correct term frequencies, \n gave answer", m1["yummy"])
+	}
+	m2 := <-tf.TermFreq
+	if m2["yummy"] != 1 {
+		t.Error("map2 did not return correct term frequencies, \n gave answer", m2["yummy"])
 	}
 }
 
@@ -48,31 +71,3 @@ func TestLiteralMapReducer(t *testing.T) {
 	// 	t.Error("map did not reduce to a sum of values. gave value:", a["yummy"])
 	// }
 }
-
-/*
-//func TestBucketSorter(t *testing.T) {
-	m := make(map[string]int)
-	m["a"] = 30
-	m["b"] = 40
-	m["c"] = 50
-
-	m["aa"] = 300
-	m["bb"] = 400
-
-	m["aaa"] = 2001
-	m["bbb"] = 2002
-	m["ccc"] = 2003
-	m["ddd"] = 2004
-
-	m["aaaa"] = 23001
-	m["bbbb"] = 22002
-	m["cccc"] = 24003
-
-	m["dddd"] = 32004
-	m["eeee"] = 32004
-
-	tf := NewTermFrequencyCalculator(4, nil, nil)
-	tf.bucketSorter()
-
-}
-*/

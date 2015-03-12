@@ -103,6 +103,7 @@ func (t *TermFrequencyCalculator) waitForBloomFilter() {
 }
 
 func (t *TermFrequencyCalculator) frequencyWorker() {
+	count := 1
 out:
 	for {
 		select {
@@ -113,10 +114,17 @@ out:
 			if !ok {
 				break out
 			}
+			fmt.Printf("parsing doc %d\n", count)
+			if m["yummy"] != 0 {
+				fmt.Printf("something went wrong and the map is not cleared\n")
+			}
 			for _, token := range doc {
 				m[token] = m[token] + 1
 			}
+			fmt.Printf("we found that there was %d in this sadgasasdf\n", m["yummy"])
 			t.TermFreq <- m
+			count++
+			doc = nil
 		}
 	}
 	atomic.AddInt32(&t.numActiveWorkers, -1)

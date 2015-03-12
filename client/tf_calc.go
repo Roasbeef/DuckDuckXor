@@ -44,15 +44,22 @@ type TermFrequencyCalculator struct {
 
 //TermFreq shoud have as many buffers as workers
 func NewTermFrequencyCalculator(numWorkers int, d chan []string, bm *bloomMaster) TermFrequencyCalculator {
-	q := make(chan struct{})
-	termFreq := make(chan map[string]int, numWorkers)
-	r := make(map[int]chan wordPair)
 	size := make(chan bucketVals)
 	populate := make(chan bucketVals)
+	r := make(map[int]chan wordPair)
 	for i := 0; i < 26; i++ {
 		r[i] = make(chan wordPair)
 	}
-	return TermFrequencyCalculator{quit: q, numWorkers: numWorkers, reduceMap: r, bloomSizeChan: size, bloomPopulateChan: populate, bloomInitChan: make(chan int), TermFreq: termFreq, docIn: d, bloomFilterManager: bm}
+	return TermFrequencyCalculator{
+		quit:               make(chan struct{}),
+		numWorkers:         numWorkers,
+		reduceMap:          r,
+		bloomSizeChan:      size,
+		bloomPopulateChan:  populate,
+		bloomInitChan:      make(chan int),
+		TermFreq:           make(chan map[string]int),
+		docIn:              d,
+		bloomFilterManager: bm}
 }
 
 func (t *TermFrequencyCalculator) Start() error {
@@ -89,6 +96,10 @@ func (t *TermFrequencyCalculator) initReducers() {
 	for i := 0; i < t.numReducers; i++ {
 		go t.reducer(i)
 	}
+}
+
+func (t *TermFrequencyCalculator) waitForBloomFilter() {
+
 }
 
 func (t *TermFrequencyCalculator) frequencyWorker() {

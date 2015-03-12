@@ -9,10 +9,10 @@ It is generated from these files:
 	sse.proto
 
 It has these top-level messages:
+	TSetFragment
 	XSetFilter
 	FilterAck
-	IndexData
-	IndexAck
+	TSetAck
 	CipherDoc
 	CipherDocAck
 	KeywordQuery
@@ -36,26 +36,6 @@ var _ grpc.ClientConn
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
-
-type IndexData_MessageType int32
-
-const (
-	IndexData_T_SET IndexData_MessageType = 0
-	IndexData_X_SET IndexData_MessageType = 1
-)
-
-var IndexData_MessageType_name = map[int32]string{
-	0: "T_SET",
-	1: "X_SET",
-}
-var IndexData_MessageType_value = map[string]int32{
-	"T_SET": 0,
-	"X_SET": 1,
-}
-
-func (x IndexData_MessageType) String() string {
-	return proto.EnumName(IndexData_MessageType_name, int32(x))
-}
 
 type BooleanSearchQuery_SearchType int32
 
@@ -83,7 +63,19 @@ func (x BooleanSearchQuery_SearchType) String() string {
 	return proto.EnumName(BooleanSearchQuery_SearchType_name, int32(x))
 }
 
+type TSetFragment struct {
+	// (b || L) -> (B || s_i) XOR K
+	Bucket []byte `protobuf:"bytes,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
+	Label  []byte `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Data   []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+}
+
+func (m *TSetFragment) Reset()         { *m = TSetFragment{} }
+func (m *TSetFragment) String() string { return proto.CompactTextString(m) }
+func (*TSetFragment) ProtoMessage()    {}
+
 type XSetFilter struct {
+	// filter of g^( F_p(K_x, w) * xind )
 	BloomFilter []byte `protobuf:"bytes,1,opt,name=bloom_filter,proto3" json:"bloom_filter,omitempty"`
 }
 
@@ -99,68 +91,17 @@ func (m *FilterAck) Reset()         { *m = FilterAck{} }
 func (m *FilterAck) String() string { return proto.CompactTextString(m) }
 func (*FilterAck) ProtoMessage()    {}
 
-type IndexData struct {
-	Type IndexData_MessageType `protobuf:"varint,1,opt,name=type,enum=sse_protos.IndexData_MessageType" json:"type,omitempty"`
-	TSet *IndexData_TSet       `protobuf:"bytes,2,opt,name=t_set" json:"t_set,omitempty"`
-	XSet *IndexData_XSet       `protobuf:"bytes,3,opt,name=x_set" json:"x_set,omitempty"`
-}
-
-func (m *IndexData) Reset()         { *m = IndexData{} }
-func (m *IndexData) String() string { return proto.CompactTextString(m) }
-func (*IndexData) ProtoMessage()    {}
-
-func (m *IndexData) GetTSet() *IndexData_TSet {
-	if m != nil {
-		return m.TSet
-	}
-	return nil
-}
-
-func (m *IndexData) GetXSet() *IndexData_XSet {
-	if m != nil {
-		return m.XSet
-	}
-	return nil
-}
-
-type IndexData_TSet struct {
-	// (b || L) -> (B || s_i) XOR K
-	// TODO(roasbeef): Need to decide on length split for these vals
-	// Key is hex-encoded byte array
-	TTuples map[string][]byte `protobuf:"bytes,1,rep,name=t_tuples" json:"t_tuples,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value,proto3"`
-}
-
-func (m *IndexData_TSet) Reset()         { *m = IndexData_TSet{} }
-func (m *IndexData_TSet) String() string { return proto.CompactTextString(m) }
-func (*IndexData_TSet) ProtoMessage()    {}
-
-func (m *IndexData_TSet) GetTTuples() map[string][]byte {
-	if m != nil {
-		return m.TTuples
-	}
-	return nil
-}
-
-// g^( F_p(K_x, w) * xind )
-type IndexData_XSet struct {
-	Xtag []byte `protobuf:"bytes,1,opt,name=xtag,proto3" json:"xtag,omitempty"`
-}
-
-func (m *IndexData_XSet) Reset()         { *m = IndexData_XSet{} }
-func (m *IndexData_XSet) String() string { return proto.CompactTextString(m) }
-func (*IndexData_XSet) ProtoMessage()    {}
-
-type IndexAck struct {
+type TSetAck struct {
 	Ack bool `protobuf:"varint,1,opt,name=ack" json:"ack,omitempty"`
 }
 
-func (m *IndexAck) Reset()         { *m = IndexAck{} }
-func (m *IndexAck) String() string { return proto.CompactTextString(m) }
-func (*IndexAck) ProtoMessage()    {}
+func (m *TSetAck) Reset()         { *m = TSetAck{} }
+func (m *TSetAck) String() string { return proto.CompactTextString(m) }
+func (*TSetAck) ProtoMessage()    {}
 
 type CipherDoc struct {
 	// CipherDoc ID.
-	DocId        int32  `protobuf:"varint,1,opt,name=doc_id" json:"doc_id,omitempty"`
+	DocId        uint32 `protobuf:"varint,1,opt,name=doc_id" json:"doc_id,omitempty"`
 	EncryptedDoc []byte `protobuf:"bytes,2,opt,name=encrypted_doc,proto3" json:"encrypted_doc,omitempty"`
 }
 
@@ -291,20 +232,18 @@ func (m *Error) String() string { return proto.CompactTextString(m) }
 func (*Error) ProtoMessage()    {}
 
 func init() {
-	proto.RegisterEnum("sse_protos.IndexData_MessageType", IndexData_MessageType_name, IndexData_MessageType_value)
 	proto.RegisterEnum("sse_protos.BooleanSearchQuery_SearchType", BooleanSearchQuery_SearchType_name, BooleanSearchQuery_SearchType_value)
 }
 
 // Client API for EncryptedSearch service
 
 type EncryptedSearchClient interface {
-	// TODO(roasbeef): Do the first two need returns?
-	InitializeIndex(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_InitializeIndexClient, error)
+	UploadTSet(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadTSetClient, error)
+	UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error)
 	UploadCipherDocs(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadCipherDocsClient, error)
 	KeywordSearch(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_KeywordSearchClient, error)
 	ConjunctiveSearchRequest(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_ConjunctiveSearchRequestClient, error)
 	XTokenExchange(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_XTokenExchangeClient, error)
-	UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error)
 }
 
 type encryptedSearchClient struct {
@@ -315,38 +254,47 @@ func NewEncryptedSearchClient(cc *grpc.ClientConn) EncryptedSearchClient {
 	return &encryptedSearchClient{cc}
 }
 
-func (c *encryptedSearchClient) InitializeIndex(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_InitializeIndexClient, error) {
-	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[0], c.cc, "/sse_protos.EncryptedSearch/InitializeIndex", opts...)
+func (c *encryptedSearchClient) UploadTSet(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadTSetClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[0], c.cc, "/sse_protos.EncryptedSearch/UploadTSet", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &encryptedSearchInitializeIndexClient{stream}
+	x := &encryptedSearchUploadTSetClient{stream}
 	return x, nil
 }
 
-type EncryptedSearch_InitializeIndexClient interface {
-	Send(*IndexData) error
-	CloseAndRecv() (*IndexAck, error)
+type EncryptedSearch_UploadTSetClient interface {
+	Send(*TSetFragment) error
+	CloseAndRecv() (*TSetAck, error)
 	grpc.ClientStream
 }
 
-type encryptedSearchInitializeIndexClient struct {
+type encryptedSearchUploadTSetClient struct {
 	grpc.ClientStream
 }
 
-func (x *encryptedSearchInitializeIndexClient) Send(m *IndexData) error {
+func (x *encryptedSearchUploadTSetClient) Send(m *TSetFragment) error {
 	return x.ClientStream.SendProto(m)
 }
 
-func (x *encryptedSearchInitializeIndexClient) CloseAndRecv() (*IndexAck, error) {
+func (x *encryptedSearchUploadTSetClient) CloseAndRecv() (*TSetAck, error) {
 	if err := x.ClientStream.CloseSend(); err != nil {
 		return nil, err
 	}
-	m := new(IndexAck)
+	m := new(TSetAck)
 	if err := x.ClientStream.RecvProto(m); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (c *encryptedSearchClient) UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error) {
+	out := new(FilterAck)
+	err := grpc.Invoke(ctx, "/sse_protos.EncryptedSearch/UploadXSetFilter", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *encryptedSearchClient) UploadCipherDocs(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadCipherDocsClient, error) {
@@ -476,55 +424,57 @@ func (x *encryptedSearchXTokenExchangeClient) Recv() (*XTokenResponse, error) {
 	return m, nil
 }
 
-func (c *encryptedSearchClient) UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error) {
-	out := new(FilterAck)
-	err := grpc.Invoke(ctx, "/sse_protos.EncryptedSearch/UploadXSetFilter", in, out, c.cc, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // Server API for EncryptedSearch service
 
 type EncryptedSearchServer interface {
-	// TODO(roasbeef): Do the first two need returns?
-	InitializeIndex(EncryptedSearch_InitializeIndexServer) error
+	UploadTSet(EncryptedSearch_UploadTSetServer) error
+	UploadXSetFilter(context.Context, *XSetFilter) (*FilterAck, error)
 	UploadCipherDocs(EncryptedSearch_UploadCipherDocsServer) error
 	KeywordSearch(EncryptedSearch_KeywordSearchServer) error
 	ConjunctiveSearchRequest(EncryptedSearch_ConjunctiveSearchRequestServer) error
 	XTokenExchange(EncryptedSearch_XTokenExchangeServer) error
-	UploadXSetFilter(context.Context, *XSetFilter) (*FilterAck, error)
 }
 
 func RegisterEncryptedSearchServer(s *grpc.Server, srv EncryptedSearchServer) {
 	s.RegisterService(&_EncryptedSearch_serviceDesc, srv)
 }
 
-func _EncryptedSearch_InitializeIndex_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(EncryptedSearchServer).InitializeIndex(&encryptedSearchInitializeIndexServer{stream})
+func _EncryptedSearch_UploadTSet_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(EncryptedSearchServer).UploadTSet(&encryptedSearchUploadTSetServer{stream})
 }
 
-type EncryptedSearch_InitializeIndexServer interface {
-	SendAndClose(*IndexAck) error
-	Recv() (*IndexData, error)
+type EncryptedSearch_UploadTSetServer interface {
+	SendAndClose(*TSetAck) error
+	Recv() (*TSetFragment, error)
 	grpc.ServerStream
 }
 
-type encryptedSearchInitializeIndexServer struct {
+type encryptedSearchUploadTSetServer struct {
 	grpc.ServerStream
 }
 
-func (x *encryptedSearchInitializeIndexServer) SendAndClose(m *IndexAck) error {
+func (x *encryptedSearchUploadTSetServer) SendAndClose(m *TSetAck) error {
 	return x.ServerStream.SendProto(m)
 }
 
-func (x *encryptedSearchInitializeIndexServer) Recv() (*IndexData, error) {
-	m := new(IndexData)
+func (x *encryptedSearchUploadTSetServer) Recv() (*TSetFragment, error) {
+	m := new(TSetFragment)
 	if err := x.ServerStream.RecvProto(m); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+func _EncryptedSearch_UploadXSetFilter_Handler(srv interface{}, ctx context.Context, buf []byte) (proto.Message, error) {
+	in := new(XSetFilter)
+	if err := proto.Unmarshal(buf, in); err != nil {
+		return nil, err
+	}
+	out, err := srv.(EncryptedSearchServer).UploadXSetFilter(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func _EncryptedSearch_UploadCipherDocs_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -631,18 +581,6 @@ func (x *encryptedSearchXTokenExchangeServer) Recv() (*XTokenRequest, error) {
 	return m, nil
 }
 
-func _EncryptedSearch_UploadXSetFilter_Handler(srv interface{}, ctx context.Context, buf []byte) (proto.Message, error) {
-	in := new(XSetFilter)
-	if err := proto.Unmarshal(buf, in); err != nil {
-		return nil, err
-	}
-	out, err := srv.(EncryptedSearchServer).UploadXSetFilter(ctx, in)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "sse_protos.EncryptedSearch",
 	HandlerType: (*EncryptedSearchServer)(nil),
@@ -654,8 +592,8 @@ var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "InitializeIndex",
-			Handler:       _EncryptedSearch_InitializeIndex_Handler,
+			StreamName:    "UploadTSet",
+			Handler:       _EncryptedSearch_UploadTSet_Handler,
 			ClientStreams: true,
 		},
 		{

@@ -68,3 +68,7 @@ func TestShuffler(t *testing.T) {
 	}
 
 }
+
+func TestReducer(t *testing.T) {
+
+}

@@ -12,7 +12,7 @@ import (
 
 type InvIndexDocument struct {
 	Words map[string]struct{}
-	DocId int32
+	DocId uint32
 }
 
 type DocPreprocessor struct {

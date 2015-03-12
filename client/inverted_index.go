@@ -9,8 +9,8 @@ type TSetUpdateMessage struct {
 
 type InvertedIndexCalculator struct {
 	quit                chan struct{}
-	ResultInvIndex      map[string]int32
-	finalIndexEntries   chan map[string]int32
+	ResultInvIndex      map[string]uint32
+	finalIndexEntries   chan map[string]uint32
 	finalCounterEntries chan int
 	TsetIndex           map[string]int
 	mostRecentDoc       map[string]int
@@ -24,14 +24,14 @@ type InvertedIndexCalculator struct {
 
 func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndexDocument, numWorkers int) InvertedIndexCalculator {
 	q := make(chan struct{})
-	//TODO pass in a bloom filter
-	finalIndexEntries := make(chan map[string]int32, numWorkers)
+
+	finalIndexEntries := make(chan map[string]uint32, numWorkers)
 	return InvertedIndexCalculator{quit: q, finalIndexEntries: finalIndexEntries, docIn: docs, numWorkers: numWorkers}
 
 }
 
 func (i *InvertedIndexCalculator) finalIndexEntriesWorker() {
-	lastTermInDocument := make(map[string]int32)
+	lastTermInDocument := make(map[string]uint32)
 	counter := 0
 	//this count assures that if mostRecentDoc gets too large we perform GC
 out:
@@ -55,7 +55,7 @@ out:
 	i.wg.Done()
 }
 
-func maxInt(a int32, b int32) int32 {
+func maxInt(a uint32, b uint32) uint32 {
 
 	if a > b {
 		return a

@@ -55,10 +55,6 @@ type xSetSizeInitMsg struct {
 	numElements uint
 }
 
-// TODO(roasbeef): Adding functions to this could make downstrema
-// changes easier more testable. Move for xset.go?
-type xTag []byte
-
 // xSetAddMsg sends a message to the bloomMaster to add a list of xTags into
 // the X-Set.
 type xSetAddMsg struct {

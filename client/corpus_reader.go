@@ -10,7 +10,7 @@ import (
 // document...
 type document struct {
 	*os.File
-	DocId int32
+	DocId uint32
 }
 
 // CorpusReader....
@@ -21,7 +21,7 @@ type CorpusReader struct {
 	shutDown  int32
 	Wg        sync.WaitGroup
 	DocOut    chan *document
-	nextDocId int32
+	nextDocId uint32
 	sync.Mutex
 }
 
@@ -56,7 +56,7 @@ func (c *CorpusReader) Start() error {
 }
 
 // NextDocId....
-func (c *CorpusReader) NextDocId() int32 {
+func (c *CorpusReader) NextDocId() uint32 {
 	c.Lock()
 	defer c.Unlock()
 

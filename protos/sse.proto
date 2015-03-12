@@ -3,8 +3,9 @@ syntax = "proto3";
 package sse_protos;
 
 service EncryptedSearch {
-    // TODO(roasbeef): Do the first two need returns? 
-    rpc InitializeIndex(stream IndexData) returns (IndexAck);
+    rpc UploadTSet(stream TSetFragment) returns (TSetAck);
+
+    rpc UploadXSetFilter(XSetFilter) returns (FilterAck);
 
     rpc UploadCipherDocs(stream CipherDoc) returns (CipherDocAck);
 
@@ -14,10 +15,24 @@ service EncryptedSearch {
 
     rpc XTokenExchange(stream XTokenRequest) returns (stream XTokenResponse);
 
-    rpc UploadXSetFilter(XSetFilter) returns (FilterAck);
+}
+
+message TSetFragment {
+    // stag = F(K_t, w)
+    // b, L, K = F_p(stag, i)
+
+    // e = xind (encrypted doc id)
+    // y = xind * z_c^-1
+    // s_i = (e || y) => 
+
+    // (b || L) -> (B || s_i) XOR K
+    bytes bucket = 1;
+    bytes label = 2;
+    bytes data = 3;
 }
 
 message XSetFilter {
+    // filter of g^( F_p(K_x, w) * xind ) 
     bytes bloom_filter = 1;
 }
 
@@ -25,44 +40,13 @@ message FilterAck {
     bool ack = 1;
 }
 
-message IndexData {
-    enum MessageType {
-        T_SET = 0;
-        X_SET = 1;
-    }
-
-    message TSet {
-        // stag = F(K_t, w)
-        // b, L, K = F_p(stag, i)
-
-        // e = xind (encrypted doc id)
-        // y = xind * z_c^-1
-        // s_i = (e || y) => 
-
-        // (b || L) -> (B || s_i) XOR K
-        // TODO(roasbeef): Need to decide on length split for these vals
-        // Key is hex-encoded byte array
-        map<string, bytes> t_tuples = 1;
-    }
-
-    // g^( F_p(K_x, w) * xind ) 
-    message XSet {
-        bytes xtag = 1;
-    }
-
-    MessageType type = 1;
-
-    optional TSet t_set = 2; 
-    optional XSet x_set = 3;
-}
-
-message IndexAck {
+message TSetAck {
     bool ack = 1;
 }
 
 message CipherDoc {
     // CipherDoc ID.
-    int32 doc_id = 1;
+    uint32 doc_id = 1;
     bytes encrypted_doc= 2;
 }
 

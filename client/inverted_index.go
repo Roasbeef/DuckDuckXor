@@ -9,8 +9,8 @@ type TSetUpdateMessage struct {
 
 type InvertedIndexCalculator struct {
 	quit                chan struct{}
-	ResultInvIndex      map[string]int32
-	finalIndexEntries   chan map[string]int32
+	ResultInvIndex      map[string]uint32
+	finalIndexEntries   chan map[string]uint32
 	finalCounterEntries chan int
 	ResultCount         int
 	docIn               chan *InvIndexDocument
@@ -22,13 +22,13 @@ type InvertedIndexCalculator struct {
 func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndexDocument, numWorkers int) InvertedIndexCalculator {
 	q := make(chan struct{})
 
-	finalIndexEntries := make(chan map[string]int32, numWorkers)
+	finalIndexEntries := make(chan map[string]uint32, numWorkers)
 	return InvertedIndexCalculator{quit: q, finalIndexEntries: finalIndexEntries, docIn: docs, numWorkers: numWorkers}
 
 }
 
 func (i *InvertedIndexCalculator) finalIndexEntriesWorker() {
-	mostRecentDoc := make(map[string]int32)
+	mostRecentDoc := make(map[string]uint32)
 	counter := 0
 	//this count assures that if mostRecentDoc gets too large we perform GC
 out:
@@ -48,7 +48,7 @@ out:
 	i.wg.Done()
 }
 
-func maxInt(a int32, b int32) int32 {
+func maxInt(a uint32, b uint32) uint32 {
 
 	if a > b {
 		return a
@@ -56,7 +56,7 @@ func maxInt(a int32, b int32) int32 {
 	return b
 }
 
-func (i *InvertedIndexCalculator) invIndexMapReduce() map[string]int32 {
+func (i *InvertedIndexCalculator) invIndexMapReduce() map[string]uint32 {
 	i.wg.Wait()
 	//TODO create a counter that returns total number of word->docID pairs
 	//also add logging

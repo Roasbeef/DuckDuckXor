@@ -14,7 +14,7 @@ import (
 // encryptedDocs represents an encrypted document and its document ID.
 type encryptedDoc struct {
 	cipherText []byte
-	DocId      int32 // TODO(roasbeef): Just changed this to a hash?
+	DocId      uint32
 }
 
 // EncryptedDocStreamer is responsible for encrypting and sending encrypting

@@ -16,7 +16,7 @@ type InvIndexDocument struct {
 
 type XSetGenDocument struct {
 	Words map[string]struct{}
-	DocId int32
+	DocId uint32
 }
 
 type DocPreprocessor struct {

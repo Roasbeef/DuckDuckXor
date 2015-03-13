@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,7 +17,6 @@ func TestDirectoryWalker(t *testing.T) {
 	go c.DirectoryWalker(a, "./test_directory")
 	counter := 0
 	for s := range a {
-		fmt.Printf("%s\n", s)
 		if !strings.Contains(s, "test_directory") {
 			t.Error("test returned incorrect classPath: %s", s)
 		}

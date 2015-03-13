@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"fmt"
 	"os"
 	"testing"
 )
@@ -58,11 +57,10 @@ func TestDocEncrypter(t *testing.T) {
 
 	// Encryption should hold correctness.
 	encryptedDoc1 := <-encrypter.encryptedDocs
-	originalDoc1, err := encrypter.docKey.Decrypt(encryptedDoc1.cipherText)
+	_, err = encrypter.docKey.Decrypt(encryptedDoc1.cipherText)
 	if err != nil {
 		t.Fatalf("Unable to decrypt document1: %v", err)
 	}
-	fmt.Println("OG doc ", string(originalDoc1))
 
 	// Encrypter should have closed the file.
 	if err := testDoc1.Close(); err == nil {
@@ -71,11 +69,10 @@ func TestDocEncrypter(t *testing.T) {
 
 	// Encryption should hold correctness.
 	encryptedDoc2 := <-encrypter.encryptedDocs
-	originalDoc2, err := encrypter.docKey.Decrypt(encryptedDoc2.cipherText)
+	_, err = encrypter.docKey.Decrypt(encryptedDoc2.cipherText)
 	if err != nil {
 		t.Fatalf("Unable to decrypt document2: %v", err)
 	}
-	fmt.Println("OG doc ", string(originalDoc2))
 
 	// Encrypter should have closed the file.
 	if err := testDoc2.Close(); err == nil {

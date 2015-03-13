@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -160,7 +159,6 @@ func TestInverseHashTreeKeyDerivation(t *testing.T) {
 		}
 	}
 
-	fmt.Println(derivedChildren1, derivedChildren2)
 }
 
 func TestDeriveChildren(t *testing.T) {
@@ -169,8 +167,7 @@ func TestDeriveChildren(t *testing.T) {
 		t.Fatalf("Unable to read random number: %v", err)
 	}
 
-	children := deriveChildren(parentKey)
-	fmt.Println(children)
+	deriveChildren(parentKey)
 }
 
 func TestEncryptChildKeys(t *testing.T) {

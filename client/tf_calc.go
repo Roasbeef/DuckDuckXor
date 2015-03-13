@@ -1,14 +1,15 @@
 package main
 
 import (
+	"fmt"
 	"hash/fnv"
 	"sync"
 	"sync/atomic"
 )
 
 type wordPair struct {
-	word string
-	tf   int
+	key string
+	tf  int
 }
 
 type bucketVals struct {
@@ -24,7 +25,6 @@ type TermFrequencyCalculator struct {
 	bloomSizeChan      chan bucketVals
 	bloomPopulateChan  chan bucketVals
 	bloomInitChan      chan int
-	numActiveWorkers   int32
 	TermFreq           chan map[string]int
 	docIn              chan []string
 	wg                 sync.WaitGroup
@@ -32,6 +32,10 @@ type TermFrequencyCalculator struct {
 	started            int32
 	shutDown           int32
 	err                chan error
+	mappersDone        chan struct{}
+	shufflersDone      chan struct{}
+	shufflerQuit       chan struct{}
+	reducerQuit        chan struct{}
 	ltHunredbucketSize uint
 	ltOneKbucketSize   uint
 	ltTenKbucketSize   uint
@@ -47,7 +51,7 @@ func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMas
 	populate := make(chan bucketVals)
 	r := make(map[uint32]chan wordPair)
 	var i uint32
-
+	numReducers := uint32(26)
 	for i = 0; i < 26; i++ {
 		r[i] = make(chan wordPair)
 	}
@@ -59,23 +63,23 @@ func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMas
 		bloomPopulateChan:  populate,
 		bloomInitChan:      make(chan int),
 		TermFreq:           make(chan map[string]int),
-		numReducers:        26,
+		numReducers:        numReducers,
+		mappersDone:        make(chan struct{}, numWorkers),
+		shufflersDone:      make(chan struct{}, numReducers),
+		shufflerQuit:       make(chan struct{}),
+		reducerQuit:        make(chan struct{}),
 		docIn:              d,
-		bloomFilterManager: bm}
+		bloomFilterManager: bm,
+	}
 }
 
 func (t *TermFrequencyCalculator) Start() error {
 	if atomic.AddInt32(&t.started, 1) != 1 {
 		return nil
 	}
-	t.wg.Add(4)
-	go t.initReducers()
-	var i uint32
-	for i = 0; i < t.numWorkers; i++ {
-		t.numActiveWorkers++
-		go t.frequencyWorker()
-	}
-	//go t.calculateBucketSizes()
+	t.initMappers()
+	t.initShufflers()
+	t.initReducers()
 	//TODO after initializing bloom filters, wait for info
 	//from lalu stating that the buckets are created
 	go t.populateBloomFilters()
@@ -94,11 +98,28 @@ func (t *TermFrequencyCalculator) Stop() error {
 
 }
 
+func (t *TermFrequencyCalculator) initMappers() {
+	for i := uint32(0); i < t.numWorkers; i++ {
+		t.wg.Add(1)
+		t.mappersDone <- struct{}{}
+		go t.frequencyWorker()
+	}
+}
+
 func (t *TermFrequencyCalculator) initReducers() {
-	var i uint32
-	for i = 0; i < t.numReducers; i++ {
+	for i := uint32(0); i < t.numReducers; i++ {
+		t.wg.Add(1)
 		go t.reducer(i)
 	}
+}
+
+func (t *TermFrequencyCalculator) initShufflers() {
+	for i := uint32(0); i < t.numReducers; i++ {
+		t.wg.Add(1)
+		t.shufflersDone <- struct{}{}
+		go t.shuffler()
+	}
+
 }
 
 func (t *TermFrequencyCalculator) waitForBloomFilter() {
@@ -120,14 +141,17 @@ out:
 				m[token] = m[token] + 1
 			}
 			t.TermFreq <- m
-			doc = nil
 		}
 	}
-	atomic.AddInt32(&t.numActiveWorkers, -1)
+	<-t.mappersDone
+	if len(t.mappersDone) == 0 {
+		close(t.shufflerQuit)
+	}
 	t.wg.Done()
 }
 
 func (t *TermFrequencyCalculator) shuffler() {
+	fmt.Printf("starting shuffler\n")
 out:
 	for {
 		select {
@@ -135,22 +159,21 @@ out:
 			break out
 		case doc := <-t.TermFreq:
 			for key, val := range doc {
-
 				hashValue := Hash(key)
 				hashValue = hashValue % t.numReducers
-				go func(k string, v int) {
-					t.reduceMap[hashValue] <- wordPair{k, v}
-				}(key, val)
+				t.reduceMap[hashValue] <- wordPair{key, val}
 			}
-		default:
-			if t.numActiveWorkers == 0 {
-				break out
-			}
+		case <-t.shufflerQuit:
+			break out
 		}
 
 	}
-	//TODO if multiple functions try to close a channel does that cause problems?
-	close(t.TermFreq)
+	fmt.Printf("terminating shuffler\n")
+	<-t.shufflersDone
+	if len(t.shufflersDone) == 0 {
+		close(t.reducerQuit)
+	}
+	t.wg.Done()
 }
 
 func Hash(s string) uint32 {
@@ -171,10 +194,15 @@ out:
 			break out
 		case val := <-input:
 			//TODO why am I doing this count?
-			if subSet[val.word] == 0 {
+			if subSet[val.key] == 0 {
 				count++
 			}
-			subSet[val.word] += val.tf
+			if val.key == "golly" {
+				fmt.Printf("gosh golly what a cool input!\n")
+			}
+			subSet[val.key] += val.tf
+		case <-t.reducerQuit:
+			break out
 		}
 	}
 

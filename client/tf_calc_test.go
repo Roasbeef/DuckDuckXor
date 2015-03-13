@@ -48,27 +48,47 @@ out:
 }
 
 func TestShuffler(t *testing.T) {
-	fmt.Printf("starting shuffle test\n")
 	a := make(map[string]int)
 	a["hello"] = 5
 	a["goodbye"] = 4
 	a["golly"] = 3
-
 	tf := NewTermFrequencyCalculator(1, nil, nil)
 	tf.wg.Add(1)
-	go tf.shuffler()
+	tf.initShufflers()
 	tf.TermFreq <- a
 	word := <-tf.reduceMap[Hash("hello")%tf.numReducers]
-	if word.word != "hello" || word.tf != 5 {
-		t.Error("recieved incorrect value from map: expected hello but got " + word.word)
+	if word.key != "hello" || word.tf != 5 {
+		t.Error("recieved incorrect value from map: expected hello but got " + word.key)
 	}
 	word = <-tf.reduceMap[Hash("goodbye")%tf.numReducers]
-	if word.word != "goodbye" || word.tf != 4 {
-		t.Error("recieved incorrect value from map: expected goodbye but got " + word.word)
+	if word.key != "goodbye" || word.tf != 4 {
+		t.Error("recieved incorrect value from map: expected goodbye but got " + word.key)
 	}
+	close(tf.shufflerQuit)
 
 }
 
 func TestReducer(t *testing.T) {
-
+	a := make(map[string]int)
+	b := make(map[string]int)
+	a["hello"] = 500
+	a["goodbye"] = 40000
+	a["golly"] = 3
+	b["golly"] = 6
+	b["camel"] = 54
+	tf := NewTermFrequencyCalculator(1, nil, nil)
+	tf.initShufflers()
+	tf.initReducers()
+	tf.TermFreq <- a
+	tf.TermFreq <- b
+	fmt.Printf("running reducers")
+	close(tf.shufflerQuit)
+	b100 := uint(0)
+	for i := 0; i < 26; i++ {
+		a := <-tf.bloomSizeChan
+		b100 += a.ltHunredbucketSize
+	}
+	if b100 != 2 {
+		t.Error("incorrect below100 size: expected 2 but got", b100)
+	}
 }

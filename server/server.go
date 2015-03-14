@@ -19,11 +19,11 @@ var (
 	tls      = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 	certFile = flag.String("cert_file", "testdata/server1.pem", "The TLS cert file")
 	keyFile  = flag.String("key_file", "testdata/server1.key", "The TLS key file")
+	dbFile   = flag.String("db_file", "~/.duckduckxor/db.bolt", "Location of DB file")
 )
 
 type encryptedSearchServer struct {
 	docStore *documentDatabase
-	db       *bolt.DB
 }
 
 func (e *encryptedSearchServer) SendMetaData(ctx context.Context, mData *pb.MetaData) (*pb.MetaDataAck, error) {
@@ -54,29 +54,45 @@ func (e *encryptedSearchServer) XTokenExchange(stream pb.EncryptedSearch_XTokenE
 	return nil
 }
 
-func newEncryptedSearchServer() (*encryptedSearchServer, error) {
-	return nil, nil
-}
-
-func init() {
+func newEncryptedSearchServer(docStore *documentDatabase) (*encryptedSearchServer, error) {
+	return &encryptedSearchServer{
+		docStore: docStore,
+	}, nil
 }
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	flag.Parse()
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
+	// Open up our database, creating the file if needed.
+	db, err := bolt.Open(*dbFile, 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	// Initialize components for the server.
 	grpcServer := grpc.NewServer()
-	eServer, err := newEncryptedSearchServer()
+	docDb, err := NewDocumentDatabase(db)
+	if err != nil {
+		log.Fatalf("unable to create document database: %v", err)
+	}
+	docDb.Start()
+
+	eServer, err := newEncryptedSearchServer(docDb)
 	if err != nil {
 		log.Fatalf("unable to create server: %v", err)
 	}
 
+	// Register our implemented server interface
 	pb.RegisterEncryptedSearchServer(grpcServer, eServer)
 
+	// Optionally activate TLS.
 	if *tls {
 		creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
 		if err != nil {
@@ -86,4 +102,6 @@ func main() {
 	} else {
 		grpcServer.Serve(lis)
 	}
+
+	// TODO(roasbeef): OS Signal/Error handling.
 }

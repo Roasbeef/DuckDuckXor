@@ -59,7 +59,7 @@ message TSetAck {
 message CipherDoc {
     // CipherDoc ID.
     uint32 doc_id = 1;
-    bytes encrypted_doc= 2;
+    bytes encrypted_doc = 2;
 }
 
 message CipherDocAck {

@@ -3,7 +3,7 @@ syntax = "proto3";
 package sse_protos;
 
 service EncryptedSearch {
-    rpc SendMetaData(MetaData) returns (MetaDataAck);
+    rpc UploadMetaData(MetaData) returns (MetaDataAck);
 
     rpc UploadTSet(stream TSetFragment) returns (TSetAck);
 

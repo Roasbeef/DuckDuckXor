@@ -258,7 +258,7 @@ func init() {
 // Client API for EncryptedSearch service
 
 type EncryptedSearchClient interface {
-	SendMetaData(ctx context.Context, in *MetaData, opts ...grpc.CallOption) (*MetaDataAck, error)
+	UploadMetaData(ctx context.Context, in *MetaData, opts ...grpc.CallOption) (*MetaDataAck, error)
 	UploadTSet(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadTSetClient, error)
 	UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error)
 	UploadCipherDocs(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadCipherDocsClient, error)
@@ -275,9 +275,9 @@ func NewEncryptedSearchClient(cc *grpc.ClientConn) EncryptedSearchClient {
 	return &encryptedSearchClient{cc}
 }
 
-func (c *encryptedSearchClient) SendMetaData(ctx context.Context, in *MetaData, opts ...grpc.CallOption) (*MetaDataAck, error) {
+func (c *encryptedSearchClient) UploadMetaData(ctx context.Context, in *MetaData, opts ...grpc.CallOption) (*MetaDataAck, error) {
 	out := new(MetaDataAck)
-	err := grpc.Invoke(ctx, "/sse_protos.EncryptedSearch/SendMetaData", in, out, c.cc, opts...)
+	err := grpc.Invoke(ctx, "/sse_protos.EncryptedSearch/UploadMetaData", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +457,7 @@ func (x *encryptedSearchXTokenExchangeClient) Recv() (*XTokenResponse, error) {
 // Server API for EncryptedSearch service
 
 type EncryptedSearchServer interface {
-	SendMetaData(context.Context, *MetaData) (*MetaDataAck, error)
+	UploadMetaData(context.Context, *MetaData) (*MetaDataAck, error)
 	UploadTSet(EncryptedSearch_UploadTSetServer) error
 	UploadXSetFilter(context.Context, *XSetFilter) (*FilterAck, error)
 	UploadCipherDocs(EncryptedSearch_UploadCipherDocsServer) error
@@ -470,12 +470,12 @@ func RegisterEncryptedSearchServer(s *grpc.Server, srv EncryptedSearchServer) {
 	s.RegisterService(&_EncryptedSearch_serviceDesc, srv)
 }
 
-func _EncryptedSearch_SendMetaData_Handler(srv interface{}, ctx context.Context, buf []byte) (proto.Message, error) {
+func _EncryptedSearch_UploadMetaData_Handler(srv interface{}, ctx context.Context, buf []byte) (proto.Message, error) {
 	in := new(MetaData)
 	if err := proto.Unmarshal(buf, in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(EncryptedSearchServer).SendMetaData(ctx, in)
+	out, err := srv.(EncryptedSearchServer).UploadMetaData(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -629,8 +629,8 @@ var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
 	HandlerType: (*EncryptedSearchServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "SendMetaData",
-			Handler:    _EncryptedSearch_SendMetaData_Handler,
+			MethodName: "UploadMetaData",
+			Handler:    _EncryptedSearch_UploadMetaData_Handler,
 		},
 		{
 			MethodName: "UploadXSetFilter",

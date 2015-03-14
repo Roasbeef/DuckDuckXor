@@ -9,6 +9,8 @@ It is generated from these files:
 	sse.proto
 
 It has these top-level messages:
+	MetaData
+	MetaDataAck
 	TSetFragment
 	XSetFilter
 	FilterAck
@@ -62,6 +64,24 @@ var BooleanSearchQuery_SearchType_value = map[string]int32{
 func (x BooleanSearchQuery_SearchType) String() string {
 	return proto.EnumName(BooleanSearchQuery_SearchType_name, int32(x))
 }
+
+type MetaData struct {
+	TsetNumBucketBytes int32 `protobuf:"varint,1,opt,name=tset_num_bucket_bytes" json:"tset_num_bucket_bytes,omitempty"`
+	TsetNumLabelBytes  int32 `protobuf:"varint,2,opt,name=tset_num_label_bytes" json:"tset_num_label_bytes,omitempty"`
+	TsetNumDataBytes   int32 `protobuf:"varint,3,opt,name=tset_num_data_bytes" json:"tset_num_data_bytes,omitempty"`
+}
+
+func (m *MetaData) Reset()         { *m = MetaData{} }
+func (m *MetaData) String() string { return proto.CompactTextString(m) }
+func (*MetaData) ProtoMessage()    {}
+
+type MetaDataAck struct {
+	Ack bool `protobuf:"varint,1,opt,name=ack" json:"ack,omitempty"`
+}
+
+func (m *MetaDataAck) Reset()         { *m = MetaDataAck{} }
+func (m *MetaDataAck) String() string { return proto.CompactTextString(m) }
+func (*MetaDataAck) ProtoMessage()    {}
 
 type TSetFragment struct {
 	// (b || L) -> (B || s_i) XOR K
@@ -238,6 +258,7 @@ func init() {
 // Client API for EncryptedSearch service
 
 type EncryptedSearchClient interface {
+	UploadMetaData(ctx context.Context, in *MetaData, opts ...grpc.CallOption) (*MetaDataAck, error)
 	UploadTSet(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadTSetClient, error)
 	UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error)
 	UploadCipherDocs(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadCipherDocsClient, error)
@@ -252,6 +273,15 @@ type encryptedSearchClient struct {
 
 func NewEncryptedSearchClient(cc *grpc.ClientConn) EncryptedSearchClient {
 	return &encryptedSearchClient{cc}
+}
+
+func (c *encryptedSearchClient) UploadMetaData(ctx context.Context, in *MetaData, opts ...grpc.CallOption) (*MetaDataAck, error) {
+	out := new(MetaDataAck)
+	err := grpc.Invoke(ctx, "/sse_protos.EncryptedSearch/UploadMetaData", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *encryptedSearchClient) UploadTSet(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadTSetClient, error) {
@@ -427,6 +457,7 @@ func (x *encryptedSearchXTokenExchangeClient) Recv() (*XTokenResponse, error) {
 // Server API for EncryptedSearch service
 
 type EncryptedSearchServer interface {
+	UploadMetaData(context.Context, *MetaData) (*MetaDataAck, error)
 	UploadTSet(EncryptedSearch_UploadTSetServer) error
 	UploadXSetFilter(context.Context, *XSetFilter) (*FilterAck, error)
 	UploadCipherDocs(EncryptedSearch_UploadCipherDocsServer) error
@@ -437,6 +468,18 @@ type EncryptedSearchServer interface {
 
 func RegisterEncryptedSearchServer(s *grpc.Server, srv EncryptedSearchServer) {
 	s.RegisterService(&_EncryptedSearch_serviceDesc, srv)
+}
+
+func _EncryptedSearch_UploadMetaData_Handler(srv interface{}, ctx context.Context, buf []byte) (proto.Message, error) {
+	in := new(MetaData)
+	if err := proto.Unmarshal(buf, in); err != nil {
+		return nil, err
+	}
+	out, err := srv.(EncryptedSearchServer).UploadMetaData(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func _EncryptedSearch_UploadTSet_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -585,6 +628,10 @@ var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "sse_protos.EncryptedSearch",
 	HandlerType: (*EncryptedSearchServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "UploadMetaData",
+			Handler:    _EncryptedSearch_UploadMetaData_Handler,
+		},
 		{
 			MethodName: "UploadXSetFilter",
 			Handler:    _EncryptedSearch_UploadXSetFilter_Handler,

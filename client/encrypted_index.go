@@ -220,7 +220,7 @@ func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 	wTrapPRF := hmac.New(sha1.New, (*wTrapKey)[:16])
 
 	sTagKey := e.keyMap[STagKey]
-	sTagPRF := hmac.New(sha1.New, (*sTagKey)[:])
+	sTagPRF := hmac.New(sha1.New, (*sTagKey)[:16])
 
 	tweakVal := e.keyMap[PermuteTweak]
 out:
@@ -264,7 +264,7 @@ out:
 	e.wg.Done()
 }
 
-// calcTSetKey...
+// calcTsetVals...
 func calcTsetVals(stag []byte, index uint32) ([1]byte, [16]byte, [37]byte) {
 	prf := hmac.New(sha512.New, stag)
 	binary.Write(prf, binary.BigEndian, index)
@@ -345,7 +345,11 @@ func permuteDocId(word string, wPrf hash.Hash, tweak []byte, docId uint32) []byt
 	var xindBuf bytes.Buffer
 	binary.Write(&xindBuf, binary.BigEndian, docId)
 	xindString := hex.EncodeToString(xindBuf.Bytes())
-	permutedId := wordPerm.Encrypt(xindString)
+	permutedId, err := wordPerm.Encrypt(xindString)
+	if err != nil {
+		// TODO(roasbeef): handle err
+	}
+
 	permutedBytes, err := hex.DecodeString(permutedId)
 	if err != nil {
 		// TODO(roasbeef): handle err

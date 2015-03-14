@@ -19,7 +19,7 @@ type DocPreprocessor struct {
 	quit          chan struct{}
 	started       int32
 	shutdown      int32
-	e             chan error
+	abort         func(chan struct{}, error)
 	TfOut         chan []string
 	InvIndexOut   chan *InvIndexDocument
 	DocEncryptOut chan *document
@@ -28,7 +28,7 @@ type DocPreprocessor struct {
 	wg            sync.WaitGroup
 }
 
-func NewDocPreprocessor(inp chan *document, e chan error) *DocPreprocessor {
+func NewDocPreprocessor(inp chan *document, e func(chan struct{}, error)) *DocPreprocessor {
 	q := make(chan struct{})
 	//channels have buffer of size one in case of errors
 	d := make(chan *document, 1)
@@ -42,7 +42,7 @@ func NewDocPreprocessor(inp chan *document, e chan error) *DocPreprocessor {
 		DocEncryptOut: d,
 		XsetGenOut:    x,
 		input:         inp,
-		e:             e,
+		abort:         e,
 	}
 }
 

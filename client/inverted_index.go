@@ -19,14 +19,20 @@ type InvertedIndexCalculator struct {
 	wg                  sync.WaitGroup
 	started             int32
 	numWorkers          int
+	abort               func(chan struct{}, error)
 	bloomMaster         *bloomMaster
 }
 
-func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndexDocument, numWorkers int) InvertedIndexCalculator {
+func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndexDocument, numWorkers int, abort func(chan struct{}, error)) InvertedIndexCalculator {
 	q := make(chan struct{})
 
 	finalIndexEntries := make(chan map[string]uint32, numWorkers)
-	return InvertedIndexCalculator{quit: q, finalIndexEntries: finalIndexEntries, docIn: docs, numWorkers: numWorkers}
+	return InvertedIndexCalculator{quit: q,
+		finalIndexEntries: finalIndexEntries,
+		docIn:             docs,
+		abort:             abort,
+		numWorkers:        numWorkers,
+	}
 
 }
 

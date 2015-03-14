@@ -21,20 +21,20 @@ type CorpusReader struct {
 	shutDown  int32
 	Wg        sync.WaitGroup
 	DocOut    chan *document
-	e         chan error
+	abort     func(chan struct{}, error)
 	nextDocId uint32
 	sync.Mutex
 }
 
 // NewCorpusReader....
-func NewCorpusReader(rootDir string, e chan error) *CorpusReader {
+func NewCorpusReader(rootDir string, e func(chan struct{}, error)) *CorpusReader {
 	q := make(chan struct{})
 	d := make(chan *document)
 	return &CorpusReader{
 		quit:    q,
 		DocOut:  d,
 		rootDir: rootDir,
-		e:       e,
+		abort:   e,
 	}
 }
 

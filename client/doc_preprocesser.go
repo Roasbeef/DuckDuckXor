@@ -81,7 +81,7 @@ out:
 			invIndexMap := make(map[string]struct{})
 			_, err := io.Copy(b, doc)
 			if err != nil {
-				//TODO error handling
+				d.abort(d.quit, err)
 			}
 			parsedTFWords := ParseTokens(string(b.Bytes()))
 			for _, token := range parsedTFWords {

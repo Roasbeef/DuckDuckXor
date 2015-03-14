@@ -83,8 +83,7 @@ out:
 			}
 			f, err := os.Open(filePath)
 			if err != nil {
-				c.Stop()
-				break out
+				c.abort(c.quit, err)
 			}
 			d := &document{File: f, DocId: c.NextDocId()}
 			docOut <- d

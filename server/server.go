@@ -25,31 +25,26 @@ var (
 
 // encryptedSearchServer....
 type encryptedSearchServer struct {
-	docStore *documentDatabase
-	searcher *encryptedIndexSearcher
-
-	metaDataRecived chan struct{}
+	docStore       *documentDatabase
+	encryptedIndex *encryptedIndexSearcher
 }
 
 // UploadMetaData loads the meta data required for creating and searching
 // through the encrypted index.
 func (e *encryptedSearchServer) UploadMetaData(ctx context.Context, mData *pb.MetaData) (*pb.MetaDataAck, error) {
-	e.searcher.LoadTSetMetaData(mData)
-	close(e.metaDataRecived)
+	e.encryptedIndex.LoadTSetMetaData(mData)
 	return &pb.MetaDataAck{Ack: true}, nil
 }
 
-func (e *encryptedSearchServer) WaitForMetaDataInit() {
-	<-e.metaDataRecived
-}
-
 func (e *encryptedSearchServer) UploadTSet(stream pb.EncryptedSearch_UploadTSetServer) error {
-	e.WaitForMetaDataInit()
 	return nil
 }
 
+// UploadXSetFilter loads the client-side created xSet bloom filter into memory
+// and the database.
 func (e *encryptedSearchServer) UploadXSetFilter(ctx context.Context, xFilter *pb.XSetFilter) (*pb.FilterAck, error) {
-	return nil, nil
+	e.encryptedIndex.LoadXSetFilter(xFilter)
+	return &pb.FilterAck{Ack: true}, nil
 }
 
 // UploadCipherDocs implements a client streaming RPC for storing encrypted
@@ -79,10 +74,10 @@ func (e *encryptedSearchServer) XTokenExchange(stream pb.EncryptedSearch_XTokenE
 	return nil
 }
 
-func newEncryptedSearchServer(docStore *documentDatabase) (*encryptedSearchServer, error) {
+func newEncryptedSearchServer(docStore *documentDatabase, index *encryptedIndexSearcher) (*encryptedSearchServer, error) {
 	return &encryptedSearchServer{
-		metaDataRecived: make(chan struct{}),
-		docStore:        docStore,
+		docStore:       docStore,
+		encryptedIndex: index,
 	}, nil
 }
 
@@ -110,7 +105,12 @@ func main() {
 	}
 	docDb.Start()
 
-	eServer, err := newEncryptedSearchServer(docDb)
+	index, err := NewEncryptedIndexSearcher(db)
+	if err != nil {
+		log.Fatalf("unable to load search index: %v", err)
+	}
+
+	eServer, err := newEncryptedSearchServer(docDb, index)
 	if err != nil {
 		log.Fatalf("unable to create server: %v", err)
 	}

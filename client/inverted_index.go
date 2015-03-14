@@ -18,16 +18,55 @@ type InvertedIndexCalculator struct {
 	docIn               chan *InvIndexDocument
 	wg                  sync.WaitGroup
 	started             int32
-	numWorkers          int
+	numWorkers          uint32
+	numReducers         uint32
+	mappersDone         chan struct{}
+	shufflersDone       chan struct{}
+	shufflerQuit        chan struct{}
+	reducerQuit         chan struct{}
+	abort               func(chan struct{}, error)
 	bloomMaster         *bloomMaster
 }
 
-func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndexDocument, numWorkers int) InvertedIndexCalculator {
+func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndexDocument, numWorkers uint32, numReducers uint32, abort func(chan struct{}, error)) InvertedIndexCalculator {
 	q := make(chan struct{})
 
 	finalIndexEntries := make(chan map[string]uint32, numWorkers)
-	return InvertedIndexCalculator{quit: q, finalIndexEntries: finalIndexEntries, docIn: docs, numWorkers: numWorkers}
+	return InvertedIndexCalculator{quit: q,
+		finalIndexEntries: finalIndexEntries,
+		docIn:             docs,
+		mappersDone:       make(chan struct{}, numWorkers),
+		shufflersDone:     make(chan struct{}, numReducers),
+		shufflerQuit:      make(chan struct{}),
+		reducerQuit:       make(chan struct{}),
+		abort:             abort,
+		numWorkers:        numWorkers,
+		numReducers:       numReducers,
+	}
 
+}
+
+func (i *InvertedIndexCalculator) initMappers() {
+	for j := uint32(0); j < i.numWorkers; j++ {
+		i.wg.Add(1)
+		i.mappersDone <- struct{}{}
+		go i.finalIndexEntriesWorker()
+	}
+}
+
+func (i *InvertedIndexCalculator) initReducers() {
+	for j := uint32(0); j < i.numReducers; j++ {
+		i.wg.Add(1)
+		go i.reducer(j)
+	}
+}
+
+func (i *InvertedIndexCalculator) initShufflers() {
+	for j := uint32(0); j < i.numReducers; j++ {
+		i.wg.Add(1)
+		i.shufflersDone <- struct{}{}
+		go i.finalIndexShuffler()
+	}
 }
 
 func (i *InvertedIndexCalculator) finalIndexEntriesWorker() {
@@ -63,22 +102,10 @@ func maxInt(a uint32, b uint32) uint32 {
 	return b
 }
 
-func (i *InvertedIndexCalculator) invIndexMapReduce() {
-	i.wg.Wait()
-	//TODO create a counter that returns total number of word->docID pairs
-	//also add logging
-	masterMap := <-i.finalIndexEntries
-	masterCounter := 0
-	for j := 0; j < i.numWorkers-1; j++ {
-		tempMap := <-i.finalIndexEntries
-		tempCount := <-i.finalCounterEntries
-		for k := range tempMap {
-			masterMap[k] = maxInt(masterMap[k], tempMap[k])
-		}
-		masterCounter += tempCount
-	}
-	//TODO rename ResultInvIndex
+func (i *InvertedIndexCalculator) finalIndexShuffler() {
 
-	i.ResultInvIndex = masterMap
-	i.bloomMaster.InitXSet(uint(masterCounter))
+}
+
+func (i *InvertedIndexCalculator) reducer(key uint32) {
+
 }

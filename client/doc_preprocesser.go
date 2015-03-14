@@ -19,6 +19,7 @@ type DocPreprocessor struct {
 	quit          chan struct{}
 	started       int32
 	shutdown      int32
+	abort         func(chan struct{}, error)
 	TfOut         chan []string
 	InvIndexOut   chan *InvIndexDocument
 	DocEncryptOut chan *document
@@ -27,14 +28,22 @@ type DocPreprocessor struct {
 	wg            sync.WaitGroup
 }
 
-func NewDocPreprocessor(inp chan *document) *DocPreprocessor {
+func NewDocPreprocessor(inp chan *document, e func(chan struct{}, error)) *DocPreprocessor {
 	q := make(chan struct{})
 	//channels have buffer of size one in case of errors
 	d := make(chan *document, 1)
 	i := make(chan *InvIndexDocument, 1)
 	x := make(chan *InvIndexDocument, 1)
 	t := make(chan []string, 1)
-	return &DocPreprocessor{quit: q, TfOut: t, InvIndexOut: i, DocEncryptOut: d, XsetGenOut: x, input: inp}
+	return &DocPreprocessor{
+		quit:          q,
+		TfOut:         t,
+		InvIndexOut:   i,
+		DocEncryptOut: d,
+		XsetGenOut:    x,
+		input:         inp,
+		abort:         e,
+	}
 }
 
 func (d *DocPreprocessor) Start() error {
@@ -72,7 +81,7 @@ out:
 			invIndexMap := make(map[string]struct{})
 			_, err := io.Copy(b, doc)
 			if err != nil {
-				//TODO error handling
+				d.abort(d.quit, err)
 			}
 			parsedTFWords := ParseTokens(string(b.Bytes()))
 			for _, token := range parsedTFWords {

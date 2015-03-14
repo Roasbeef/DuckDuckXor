@@ -7,7 +7,7 @@ import (
 )
 
 func TestDirectoryWalker(t *testing.T) {
-	c := NewCorpusReader("./test_directory")
+	c := NewCorpusReader("./test_directory", nil)
 	if c == nil {
 		t.Error("class not instantiated")
 	}
@@ -28,7 +28,7 @@ func TestDirectoryWalker(t *testing.T) {
 }
 
 func TestDocumentReader(t *testing.T) {
-	c := NewCorpusReader("./test_directory")
+	c := NewCorpusReader("./test_directory", nil)
 	a := make(chan string)
 	c.Wg.Add(1)
 	go c.DocumentReader(a, c.DocOut)

@@ -11,7 +11,7 @@ import (
 // is already working correctly
 
 func TestFrequencyWorker(t *testing.T) {
-	corpusreader := NewCorpusReader("./test_directory/")
+	corpusreader := NewCorpusReader("./test_directory/", nil)
 	corpusreader.Start()
 	terms := make(chan []string, 2)
 	var bit []byte
@@ -31,7 +31,7 @@ out:
 			b.Reset()
 		}
 	}
-	tf := NewTermFrequencyCalculator(1, terms, nil)
+	tf := NewTermFrequencyCalculator(1, terms, nil, nil)
 	tf.wg.Add(1)
 	go tf.frequencyWorker()
 	m1 := <-tf.TermFreq
@@ -49,7 +49,7 @@ func TestShuffler(t *testing.T) {
 	a["hello"] = 5
 	a["goodbye"] = 4
 	a["golly"] = 3
-	tf := NewTermFrequencyCalculator(1, nil, nil)
+	tf := NewTermFrequencyCalculator(1, nil, nil, nil)
 	tf.wg.Add(1)
 	tf.initShufflers()
 	tf.TermFreq <- a
@@ -73,7 +73,7 @@ func TestReducer(t *testing.T) {
 	a["golly"] = 3
 	b["golly"] = 6
 	b["camel"] = 54
-	tf := NewTermFrequencyCalculator(1, nil, nil)
+	tf := NewTermFrequencyCalculator(1, nil, nil, nil)
 	tf.initShufflers()
 	tf.initReducers()
 	tf.TermFreq <- a

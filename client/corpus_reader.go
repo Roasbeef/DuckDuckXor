@@ -21,15 +21,21 @@ type CorpusReader struct {
 	shutDown  int32
 	Wg        sync.WaitGroup
 	DocOut    chan *document
+	abort     func(chan struct{}, error)
 	nextDocId uint32
 	sync.Mutex
 }
 
 // NewCorpusReader....
-func NewCorpusReader(rootDir string) *CorpusReader {
+func NewCorpusReader(rootDir string, e func(chan struct{}, error)) *CorpusReader {
 	q := make(chan struct{})
 	d := make(chan *document)
-	return &CorpusReader{quit: q, DocOut: d, rootDir: rootDir}
+	return &CorpusReader{
+		quit:    q,
+		DocOut:  d,
+		rootDir: rootDir,
+		abort:   e,
+	}
 }
 
 // Stop...
@@ -77,8 +83,7 @@ out:
 			}
 			f, err := os.Open(filePath)
 			if err != nil {
-				c.Stop()
-				break out
+				c.abort(c.quit, err)
 			}
 			d := &document{File: f, DocId: c.NextDocId()}
 			docOut <- d

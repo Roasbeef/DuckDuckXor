@@ -2,14 +2,6 @@ package main
 
 import "fmt"
 
-func (e *errorHandler) Error(errMessage error, quit chan struct{}) {
-	select {
-	case <-quit:
-		return
-	case e.Message <- errMessage:
-	}
-}
-
 type errorHandler struct {
 	Message chan error
 }
@@ -28,6 +20,21 @@ func (e *errorHandler) handleErrors() {
 		select {
 		case err := <-e.Message:
 			fmt.Printf(err.Error())
+		}
+
+	}
+}
+
+func (e *errorHandler) createAbortFunc() func(chan struct{}, error) {
+	return func(quitChan chan struct{}, err error) {
+	out:
+		for {
+			select {
+			case <-quitChan:
+				break out
+			case e.Message <- err:
+				break out
+			}
 		}
 
 	}

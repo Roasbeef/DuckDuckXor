@@ -3,13 +3,13 @@ package main
 import "testing"
 
 func TestPartitionStreams(t *testing.T) {
-	c := NewCorpusReader("./test_directory")
+	c := NewCorpusReader("./test_directory", nil)
 	if c == nil {
 		t.Error("corpus not instantiated")
 	}
 	c.Start()
 
-	preprocesser := NewDocPreprocessor(c.DocOut)
+	preprocesser := NewDocPreprocessor(c.DocOut, nil)
 	preprocesser.Start()
 	d := <-preprocesser.TfOut
 	testFile1 := []string{"i", "like", "banana", "sandwich", "cats", "are", "fun", "yummy", "yummy", "yummy"}

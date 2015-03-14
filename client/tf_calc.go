@@ -39,6 +39,7 @@ type TermFrequencyCalculator struct {
 	ltHunredbucketSize uint
 	ltOneKbucketSize   uint
 	ltTenKbucketSize   uint
+	abort              func(chan struct{}, error)
 	numReducers        uint32
 	sync.Mutex
 	ltHundredKBucketSize uint
@@ -46,7 +47,7 @@ type TermFrequencyCalculator struct {
 }
 
 //TermFreq shoud have as many buffers as workers
-func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMaster) TermFrequencyCalculator {
+func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMaster, abort func(chan struct{}, error)) TermFrequencyCalculator {
 	size := make(chan bucketVals)
 	populate := make(chan bucketVals)
 	r := make(map[uint32]chan wordPair)
@@ -69,6 +70,7 @@ func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMas
 		shufflerQuit:       make(chan struct{}),
 		reducerQuit:        make(chan struct{}),
 		docIn:              d,
+		abort:              abort,
 		bloomFilterManager: bm,
 	}
 }

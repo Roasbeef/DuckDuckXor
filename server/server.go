@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"runtime"
@@ -38,8 +39,19 @@ func (e *encryptedSearchServer) UploadXSetFilter(ctx context.Context, xFilter *p
 	return nil, nil
 }
 
+// UploadCipherDocs implements a client streaming RPC for storing encrypted
+// documents on the server.
 func (e *encryptedSearchServer) UploadCipherDocs(stream pb.EncryptedSearch_UploadCipherDocsServer) error {
-	return nil
+	for {
+		doc, err := stream.Recv()
+		if err == io.EOF {
+			return stream.SendAndClose(&pb.CipherDocAck{
+				Ack: true,
+			})
+		}
+
+		e.docStore.PutDoc(doc)
+	}
 }
 
 func (e *encryptedSearchServer) KeywordSearch(stream pb.EncryptedSearch_KeywordSearchServer) error {

@@ -166,19 +166,21 @@ out:
 				return nil
 			})
 
-			req.err <- err
+			if err != nil {
+				// TODO(roasbeef): Handle write errors over stream?
+				//req.err <- err
+			}
 		}
 	}
 	d.wg.Done()
 }
 
 // PutDoc queues an encrypted document for permanent storage in the DB.
-func (d *documentDatabase) PutDoc(doc *pb.CipherDoc) error {
+func (d *documentDatabase) PutDoc(doc *pb.CipherDoc) {
 	err := make(chan error, 1)
 	req := &putDocRequest{err: err, doc: doc}
 
 	d.writeRequests <- req
-	return <-req.err
 }
 
 // RetrieveDoc retrives an encrypted document by it's ID.

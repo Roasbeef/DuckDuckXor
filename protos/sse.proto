@@ -3,6 +3,8 @@ syntax = "proto3";
 package sse_protos;
 
 service EncryptedSearch {
+    rpc SendMetaData(MetaData) returns (MetaDataAck);
+
     rpc UploadTSet(stream TSetFragment) returns (TSetAck);
 
     rpc UploadXSetFilter(XSetFilter) returns (FilterAck);
@@ -15,6 +17,16 @@ service EncryptedSearch {
 
     rpc XTokenExchange(stream XTokenRequest) returns (stream XTokenResponse);
 
+}
+
+message MetaData {
+    int32 tset_num_bucket_bytes = 1;
+    int32 tset_num_label_bytes = 2;
+    int32 tset_num_data_bytes = 3;
+}
+
+message MetaDataAck {
+    bool ack = 1;
 }
 
 message TSetFragment {

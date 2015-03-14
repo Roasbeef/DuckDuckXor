@@ -23,15 +23,28 @@ var (
 	dbFile   = flag.String("db_file", "~/.duckduckxor/db.bolt", "Location of DB file")
 )
 
+// encryptedSearchServer....
 type encryptedSearchServer struct {
 	docStore *documentDatabase
+	searcher *encryptedIndexSearcher
+
+	metaDataRecived chan struct{}
 }
 
-func (e *encryptedSearchServer) SendMetaData(ctx context.Context, mData *pb.MetaData) (*pb.MetaDataAck, error) {
-	return nil, nil
+// UploadMetaData loads the meta data required for creating and searching
+// through the encrypted index.
+func (e *encryptedSearchServer) UploadMetaData(ctx context.Context, mData *pb.MetaData) (*pb.MetaDataAck, error) {
+	e.searcher.LoadTSetMetaData(mData)
+	close(e.metaDataRecived)
+	return &pb.MetaDataAck{Ack: true}, nil
+}
+
+func (e *encryptedSearchServer) WaitForMetaDataInit() {
+	<-e.metaDataRecived
 }
 
 func (e *encryptedSearchServer) UploadTSet(stream pb.EncryptedSearch_UploadTSetServer) error {
+	e.WaitForMetaDataInit()
 	return nil
 }
 
@@ -68,7 +81,8 @@ func (e *encryptedSearchServer) XTokenExchange(stream pb.EncryptedSearch_XTokenE
 
 func newEncryptedSearchServer(docStore *documentDatabase) (*encryptedSearchServer, error) {
 	return &encryptedSearchServer{
-		docStore: docStore,
+		metaDataRecived: make(chan struct{}),
+		docStore:        docStore,
 	}, nil
 }
 

@@ -5,8 +5,6 @@ import (
 	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/binary"
 	"encoding/hex"
 	"hash"
@@ -14,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/roasbeef/DuckDuckXor/crypto"
 	pb "github.com/roasbeef/DuckDuckXor/protos"
 	"github.com/roasbeef/perm-crypt"
 	"golang.org/x/net/context"
@@ -284,42 +283,6 @@ out:
 	e.wg.Done()
 }
 
-// calcTsetVals...
-func calcTsetVals(stag []byte, index uint32) ([1]byte, [16]byte, [37]byte) {
-	prf := hmac.New(sha512.New, stag)
-	binary.Write(prf, binary.BigEndian, index)
-	m := prf.Sum(nil)
-
-	// b, L, K = H(F(stag, index))
-	sha := sha256.New()
-	sha.Write(m)
-	tSetSum := sha.Sum(nil)
-
-	// 1 byte for bucket.
-	var bucket [1]byte
-	copy(bucket[:], tSetSum[0:1])
-
-	// 16 bytes for the label.
-	var label [16]byte
-	copy(label[:], tSetSum[1:17])
-
-	// end byte + 4 byte doc ID + 32 byte blind value
-	// 37 bytes for the one-time pad.
-	var otp [37]byte
-	copy(otp[:], tSetSum[17:54])
-
-	return bucket, label, otp
-}
-
-// xorBytes...
-func xorBytes(x, y []byte) []byte {
-	out := make([]byte, len(x))
-	for i := 0; i < len(x); i++ {
-		out[i] = x[i] ^ y[i]
-	}
-	return out
-}
-
 // computeBlindingValue....
 func computeBlindingValue(prf hash.Hash, word string, blindCounter uint32) []byte {
 	// z = F_p(K_z, w || c)
@@ -385,7 +348,7 @@ func calcTsetTuple(sprf hash.Hash, word string, tupleIndex uint32, permutedId, b
 
 	// TODO(roasbeef): the free set stuff?, cache also?
 	// b, L, K = H(F(stag, index))
-	bucket, label, otp := calcTsetVals(sTag, tupleIndex)
+	bucket, label, otp := crypto.CalcTsetVals(sTag, tupleIndex)
 
 	// TODO(roasbeef): Scheme to get exact bit.
 	// We actually write zero byte instead of bit here.
@@ -394,7 +357,7 @@ func calcTsetTuple(sprf hash.Hash, word string, tupleIndex uint32, permutedId, b
 	tElement.Write([]byte{0})
 	tElement.Write(permutedId)
 	tElement.Write(blindedXind) // TODO(roasbeef): pad out?
-	tsetTuple.Write(xorBytes(tElement.Bytes(), otp[:]))
+	tsetTuple.Write(crypto.XorBytes(tElement.Bytes(), otp[:]))
 
 	return &pb.TSetFragment{
 		Bucket: bucket[:],

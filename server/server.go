@@ -62,7 +62,7 @@ func (e *encryptedSearchServer) UploadCipherDocs(stream pb.EncryptedSearch_Uploa
 	}
 }
 
-func (e *encryptedSearchServer) KeywordSearch(stream pb.EncryptedSearch_KeywordSearchServer) error {
+func (e *encryptedSearchServer) KeywordSearch(query *pb.KeywordQuery, stream pb.EncryptedSearch_KeywordSearchServer) error {
 	return nil
 }
 

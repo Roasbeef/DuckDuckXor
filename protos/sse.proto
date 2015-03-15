@@ -20,9 +20,8 @@ service EncryptedSearch {
 }
 
 message MetaData {
-    int32 tset_num_bucket_bytes = 1;
-    int32 tset_num_label_bytes = 2;
-    int32 tset_num_data_bytes = 3;
+    int32 num_eid_bytes = 1;
+    int32 num_blind_bytes = 2;
 }
 
 message MetaDataAck {

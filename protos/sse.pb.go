@@ -66,9 +66,8 @@ func (x BooleanSearchQuery_SearchType) String() string {
 }
 
 type MetaData struct {
-	TsetNumBucketBytes int32 `protobuf:"varint,1,opt,name=tset_num_bucket_bytes" json:"tset_num_bucket_bytes,omitempty"`
-	TsetNumLabelBytes  int32 `protobuf:"varint,2,opt,name=tset_num_label_bytes" json:"tset_num_label_bytes,omitempty"`
-	TsetNumDataBytes   int32 `protobuf:"varint,3,opt,name=tset_num_data_bytes" json:"tset_num_data_bytes,omitempty"`
+	NumEidBytes   int32 `protobuf:"varint,1,opt,name=num_eid_bytes" json:"num_eid_bytes,omitempty"`
+	NumBlindBytes int32 `protobuf:"varint,2,opt,name=num_blind_bytes" json:"num_blind_bytes,omitempty"`
 }
 
 func (m *MetaData) Reset()         { *m = MetaData{} }

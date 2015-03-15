@@ -37,7 +37,16 @@ func (e *encryptedSearchServer) UploadMetaData(ctx context.Context, mData *pb.Me
 }
 
 func (e *encryptedSearchServer) UploadTSet(stream pb.EncryptedSearch_UploadTSetServer) error {
-	return nil
+	for {
+		tTuple, err := stream.Recv()
+		if err == io.EOF {
+			return stream.SendAndClose(&pb.TSetAck{
+				Ack: true,
+			})
+		}
+
+		e.encryptedIndex.PutTsetFragment(tTuple)
+	}
 }
 
 // UploadXSetFilter loads the client-side created xSet bloom filter into memory
@@ -53,6 +62,7 @@ func (e *encryptedSearchServer) UploadCipherDocs(stream pb.EncryptedSearch_Uploa
 	for {
 		doc, err := stream.Recv()
 		if err == io.EOF {
+			// TODO(Roasbeef): Proper closure?
 			return stream.SendAndClose(&pb.CipherDocAck{
 				Ack: true,
 			})

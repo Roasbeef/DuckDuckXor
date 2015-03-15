@@ -122,13 +122,18 @@ func (e *EncryptedIndexGenerator) chanSplitter(bufferSize int) (chan *InvIndexDo
 	out:
 		for {
 			select {
-			case docIndex := <-e.incomingDocuments:
+			case docIndex, more := <-e.incomingDocuments:
+				if !more {
+					break out
+				}
 				xSetChan <- docIndex
 				tSetChan <- docIndex
 			case <-e.quit:
 				break out
 			}
 		}
+		close(xSetChan)
+		close(tSetChan)
 		e.wg.Done()
 	}()
 
@@ -150,7 +155,10 @@ func (e *EncryptedIndexGenerator) xSetWorker(workChan chan *InvIndexDocument) {
 out:
 	for {
 		select {
-		case index := <-workChan:
+		case index, more := <-workChan:
+			if !more {
+				break out
+			}
 			// TODO(roasbeef): re-use buffer?
 			xTags := make([]xTag, len(index.Words))
 			for word, _ := range index.Words {
@@ -182,6 +190,9 @@ out:
 			break out
 		}
 	}
+
+	// TODO(roasbeef): do once?
+	close(e.finishedXtags)
 	e.wg.Done()
 }
 
@@ -192,7 +203,10 @@ func (e *EncryptedIndexGenerator) bloomStreamer() {
 out:
 	for {
 		select {
-		case xtags := <-e.finishedXtags:
+		case xtags, more := <-e.finishedXtags:
+			if !more {
+				break out
+			}
 			e.bloom.QueueXSetAdd(xtags)
 		case <-e.quit:
 			break out
@@ -226,7 +240,13 @@ func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 out:
 	for {
 		select {
-		case index := <-workChan:
+		case index, more := <-workChan:
+			if !more {
+				// TODO(roasbeef): sync.Do.Once() ?
+				tSetStream.CloseSend()
+				break out
+			}
+
 			for word, _ := range index.Words {
 				blindCounter := e.counter.readThenIncrement(word)
 				docCounter := blindCounter + 1

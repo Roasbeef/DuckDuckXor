@@ -11,7 +11,7 @@ service EncryptedSearch {
 
     rpc UploadCipherDocs(stream CipherDoc) returns (CipherDocAck);
 
-    rpc KeywordSearch(stream KeywordQuery) returns (stream CipherDoc);
+    rpc KeywordSearch(KeywordQuery) returns (stream CipherDoc);
 
     rpc ConjunctiveSearchRequest(stream BooleanSearchQuery) returns (stream CipherDoc);
 

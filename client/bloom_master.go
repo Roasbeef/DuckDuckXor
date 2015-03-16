@@ -20,7 +20,7 @@ const (
 	Below1000
 	Below10000
 	Below100000
-	BucketUnkown
+	BucketUnknown
 )
 
 const (
@@ -318,7 +318,7 @@ out:
 				}
 			}
 
-			req.resp <- BucketUnkown
+			req.resp <- BucketUnknown
 		case <-b.quit:
 			break out
 		}

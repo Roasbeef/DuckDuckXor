@@ -13,6 +13,7 @@ type InvertedIndexCalculator struct {
 	finalIndexEntries   chan map[string]uint32
 	finalCounterEntries chan int
 	TsetIndex           map[string]int
+	reduceMap           map[uint32]chan wordPair
 	mostRecentDoc       map[string]int
 	ResultCount         int
 	docIn               chan *InvIndexDocument
@@ -30,11 +31,16 @@ type InvertedIndexCalculator struct {
 
 func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndexDocument, numWorkers uint32, numReducers uint32, abort func(chan struct{}, error)) InvertedIndexCalculator {
 	q := make(chan struct{})
-
+	r := make(map[uint32]chan wordPair)
+	var j uint32
+	for j = 0; j < 26; j++ {
+		r[j] = make(chan wordPair)
+	}
 	finalIndexEntries := make(chan map[string]uint32, numWorkers)
 	return InvertedIndexCalculator{quit: q,
 		finalIndexEntries: finalIndexEntries,
 		docIn:             docs,
+		reduceMap:         r,
 		mappersDone:       make(chan struct{}, numWorkers),
 		shufflersDone:     make(chan struct{}, numReducers),
 		shufflerQuit:      make(chan struct{}),
@@ -87,10 +93,14 @@ out:
 				lastTermInDocument[token] = maxInt(lastTermInDocument[token], currentID)
 				counter++
 			}
+			i.finalCounterEntries <- counter
+			i.finalIndexEntries <- lastTermInDocument
 		}
 	}
-	i.finalCounterEntries <- counter
-	i.finalIndexEntries <- lastTermInDocument
+	<-i.mappersDone
+	if len(i.mappersDone) == 0 {
+		close(i.shufflerQuit)
+	}
 	i.wg.Done()
 }
 
@@ -103,7 +113,19 @@ func maxInt(a uint32, b uint32) uint32 {
 }
 
 func (i *InvertedIndexCalculator) finalIndexShuffler() {
-
+out:
+	for {
+		select {
+		case <-i.quit:
+			break out
+		case a := <-i.finalIndexEntries:
+			for key, val := range a {
+				hashValue := Hash(key)
+				hashValue = hashValue % i.numReducers
+				i.reduceMap[hashValue] <- wordPair{key, int(val)}
+			}
+		}
+	}
 }
 
 func (i *InvertedIndexCalculator) reducer(key uint32) {

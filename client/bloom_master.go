@@ -27,7 +27,7 @@ const (
 	// Number of frequency buckets.
 	numBuckets = 4
 	// The false positive rate of each bloom filter.
-	fpRate = float64(.000001)
+	fpRate = float64(0.000001)
 )
 
 // The boltDB key that houses the bucket where we stored out bloom filters.
@@ -168,7 +168,7 @@ func (b *bloomMaster) Start() error {
 
 	if b.isFirstTime {
 		b.wg.Add(1)
-		go b.streamXFilter()
+		go b.xFilterUploader()
 
 		for i := int32(0); i < b.numWorkers; i++ {
 			b.wg.Add(1)
@@ -278,10 +278,10 @@ out:
 	b.wg.Done()
 }
 
-// streamXFilter waits until it has been signaled that the X-Set has been
+// xFilterUploader waits until it has been signaled that the X-Set has been
 // fully initialized. After getting this signal it opens a stream to the server
 // and sends the entire X-Set bloom filter.
-func (b *bloomMaster) streamXFilter() {
+func (b *bloomMaster) xFilterUploader() {
 out:
 	for {
 		select {

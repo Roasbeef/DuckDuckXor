@@ -45,6 +45,7 @@ out:
 }
 
 func TestShuffler(t *testing.T) {
+	fmt.Printf("testing shuffler\n")
 	a := make(map[string]int)
 	a["hello"] = 5
 	a["goodbye"] = 4
@@ -52,7 +53,9 @@ func TestShuffler(t *testing.T) {
 	tf := NewTermFrequencyCalculator(1, nil, nil, nil)
 	tf.wg.Add(1)
 	tf.initShufflers()
+	fmt.Printf("shufflers initialized\n")
 	tf.TermFreq <- a
+
 	word := <-tf.reduceMap[Hash("hello")%tf.numReducers]
 	if word.key != "hello" || word.tf != 5 {
 		t.Error("recieved incorrect value from map: expected hello but got " + word.key)
@@ -66,6 +69,7 @@ func TestShuffler(t *testing.T) {
 }
 
 func TestReducer(t *testing.T) {
+	fmt.Printf("starting reducer test\n")
 	a := make(map[string]int)
 	b := make(map[string]int)
 	a["hello"] = 500

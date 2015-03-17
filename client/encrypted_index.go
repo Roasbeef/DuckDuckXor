@@ -58,6 +58,9 @@ type EncryptedIndexGenerator struct {
 	finishedXtags     chan []xTag
 	incomingDocuments chan *InvIndexDocument
 
+	closeOnce     sync.Once
+	closeXtagChan func()
+
 	keyMap map[KeyType]*[keySize]byte
 
 	counter *wordIndexCounter
@@ -79,7 +82,16 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 		keyMap:            keyMap,
 		curve:             elliptic.P224(),
 		numWorkers:        numWorkers,
-	}, nil
+		bloom:             bloom,
+	}
+	var once sync.Once
+	onceBody := func() {
+		close(e.finishedXtags)
+	}
+	e.closeOnce = once
+	e.closeXtagChan = onceBody
+
+	return e, nil
 }
 
 // Start...
@@ -190,8 +202,9 @@ out:
 		}
 	}
 
-	// TODO(roasbeef): do once?
-	close(e.finishedXtags)
+	// Signal the streamer that there aren't any more xTags, but do this
+	// AT MOST once.
+	e.closeOnce.Do(e.closeXtagChan)
 	e.wg.Done()
 }
 

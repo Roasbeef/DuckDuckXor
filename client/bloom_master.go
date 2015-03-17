@@ -20,14 +20,14 @@ const (
 	Below1000
 	Below10000
 	Below100000
-	BucketUnkown
+	BucketUnknown
 )
 
 const (
 	// Number of frequency buckets.
 	numBuckets = 4
 	// The false positive rate of each bloom filter.
-	fpRate = float64(.000001)
+	fpRate = float64(0.000001)
 )
 
 // The boltDB key that houses the bucket where we stored out bloom filters.
@@ -109,7 +109,7 @@ type bloomMaster struct {
 
 	// The bloom filter containing all xTags in the X-Set.
 	xSetFilter        *bloom.BloomFilter
-	xFinalSize        int32
+	xFinalSize        uint
 	xNumAddedElements int32
 
 	// The bloom filters which represent buckets of frequency ranges of
@@ -139,7 +139,7 @@ func newBloomMaster(db *bolt.DB, numWorkers int) (*bloomMaster, error) {
 	firstTime := false
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bloomBucketKey))
-		firstTime = !(b == nil)
+		firstTime = (b == nil)
 		return nil
 	})
 	if err != nil {
@@ -147,8 +147,10 @@ func newBloomMaster(db *bolt.DB, numWorkers int) (*bloomMaster, error) {
 	}
 
 	return &bloomMaster{
+		db:                 db,
 		isFirstTime:        firstTime,
 		msgChan:            make(chan interface{}, numWorkers*3),
+		quit:               make(chan struct{}),
 		xSetReady:          make(chan struct{}),
 		freqBucketsReady:   make(chan struct{}),
 		xFilterFinished:    make(chan struct{}),
@@ -168,7 +170,7 @@ func (b *bloomMaster) Start() error {
 
 	if b.isFirstTime {
 		b.wg.Add(1)
-		go b.streamXFilter()
+		go b.xFilterUploader()
 
 		for i := int32(0); i < b.numWorkers; i++ {
 			b.wg.Add(1)
@@ -177,6 +179,16 @@ func (b *bloomMaster) Start() error {
 
 		b.wg.Add(1)
 		go b.freqBloomSaver()
+	} else {
+
+		// Load the buckets into memory for aide with conjunctive queries.
+		err := b.db.View(func(tx *bolt.Tx) error {
+			fBucket := tx.Bucket(bloomBucketKey)
+			return b.loadFiltersFromDb(fBucket)
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	b.wg.Add(1)
@@ -228,13 +240,11 @@ out:
 					return err
 				}
 
-				err = bloomBucket.Put(bucketToKey[fBloom.whichBucket],
-					serializedFilter)
-				if err != nil {
-					return err
-				}
-
-				return nil
+				// Write the serializedFilter to disk.
+				return bloomBucket.Put(
+					bucketToKey[fBloom.whichBucket],
+					serializedFilter,
+				)
 			})
 			if err != nil {
 				// TODO(roasbeef): handle errs
@@ -278,11 +288,12 @@ out:
 	b.wg.Done()
 }
 
-// streamXFilter waits until it has been signaled that the X-Set has been
+// xFilterUploader waits until it has been signaled that the X-Set has been
 // fully initialized. After getting this signal it opens a stream to the server
 // and sends the entire X-Set bloom filter.
-func (b *bloomMaster) streamXFilter() {
+func (b *bloomMaster) xFilterUploader() {
 out:
+	// TODO(roasbeef): for loop needed?
 	for {
 		select {
 		case <-b.quit:
@@ -318,7 +329,7 @@ out:
 				}
 			}
 
-			req.resp <- BucketUnkown
+			req.resp <- BucketUnknown
 		case <-b.quit:
 			break out
 		}
@@ -379,6 +390,7 @@ func (b *bloomMaster) QueueFreqBucketAdd(targetBucket BloomFrequencyBucket, word
 func (b *bloomMaster) handleXSetInit(msg *xSetSizeInitMsg) {
 	// Create the x-set bloom filter now that we have the proper parameters.
 	b.xSetFilter = bloom.NewWithEstimates(msg.numElements, fpRate)
+	b.xFinalSize = msg.numElements
 
 	// Notify any upstream workers that are waiting for the initialization of
 	// the bloom filter. We're essentially using the chan struct{} as a
@@ -390,11 +402,12 @@ func (b *bloomMaster) handleXSetInit(msg *xSetSizeInitMsg) {
 func (b *bloomMaster) handleXSetAdd(msg *xSetAddMsg) {
 	for _, xTag := range msg.xTags {
 		b.xSetFilter.Add(xTag)
-		b.xNumAddedElements += 1
+		// TODO(Roasbeef): channel scheme instead??
+		atomic.AddInt32(&b.xNumAddedElements, 1)
 	}
 
 	// Final element has been added, signal the streamer to begin.
-	if b.xNumAddedElements == b.xFinalSize {
+	if uint(b.xNumAddedElements) == b.xFinalSize {
 		close(b.xFilterFinished)
 	}
 }
@@ -429,7 +442,6 @@ func (b *bloomMaster) handleFreqBucketAdd(msg *freqBucketAddMsg) {
 		numAdded++
 	}
 
-	// TODO(roasbeef): race condition here?
 	// Send off the finished bloom filter if the bucket is now full.
 	b.bucketStatsMtx.Lock()
 	b.currentBucketSize[targetBucket] += numAdded
@@ -446,4 +458,27 @@ func (b *bloomMaster) QueryWordFrequency(word string) BloomFrequencyBucket {
 	query := &wordQueryRequest{query: word, resp: make(chan BloomFrequencyBucket)}
 	b.wordQueries <- query
 	return <-query.resp
+}
+
+// loadFiltersFromDb retrives and deserializes each frequency bucket bloom
+// filter form the DB.
+func (b *bloomMaster) loadFiltersFromDb(bloomBucket *bolt.Bucket) error {
+	for i := 0; i < numBuckets; i++ {
+		filterBucket := BloomFrequencyBucket(i)
+		key := bucketToKey[filterBucket]
+
+		serializedFilter := bloomBucket.Get(key)
+		if serializedFilter == nil {
+			return fmt.Errorf("Frequency bloom filter %v not found", i)
+		}
+
+		var filter bloom.BloomFilter
+		if err := filter.GobDecode(serializedFilter); err != nil {
+			return fmt.Errorf("Unable to deserialize filter: %v", err)
+		}
+
+		b.bloomFreqBuckets[filterBucket] = &filter
+
+	}
+	return nil
 }

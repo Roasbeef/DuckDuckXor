@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -14,11 +15,12 @@ import (
 )
 
 var (
-	indexBucketKey = []byte("index")
-	tSetBucketKey  = []byte("tset")
-	xSetKey        = []byte("xset")
-	numTsetReaders = runtime.NumCPU() * 3
-	numTsetWriters = 2
+	indexBucketKey  = []byte("index")
+	tSetBucketKey   = []byte("tset")
+	xSetKey         = []byte("xset")
+	numTsetReaders  = runtime.NumCPU() * 3
+	numTsetWriters  = 2
+	searchChunkSize = uint32(20) // Proper # for chunk size?
 )
 
 // tSetWriteReq...
@@ -28,14 +30,23 @@ type tSetWriteReq struct {
 
 // tSetWriteReq...
 type tSetReadReq struct {
-	sTag  []byte
-	resps chan *tupleData // Should be buffered request side.
+	sTag   []byte
+	resps  chan *tupleData // Should be buffered request side.
+	cancel chan struct{}
 }
 
 type tupleData struct {
 	eId         []byte
 	blindingVal []byte
+	workerIndex uint32
+	isLast      bool
 }
+
+type tupleBatch []*tupleData
+
+func (t tupleBatch) Len() int           { return len(t) }
+func (t tupleBatch) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
+func (t tupleBatch) Less(i, j int) bool { return t[i].workerIndex < t[j].workerIndex }
 
 // encryptedIndexSearcher....
 type encryptedIndexSearcher struct {
@@ -75,6 +86,33 @@ func (e *encryptedIndexSearcher) Start() error {
 	if atomic.AddInt32(&e.started, 1) != 1 {
 		return nil
 	}
+
+	var indexIsPopulated bool
+	err := e.db.View(func(tx *bolt.Tx) error {
+		indexIsPopulated = tx.Bucket(indexBucketKey) != nil
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// If the index has been created already. Then load the X-Set filter
+	// from the DB. Otherwise, create tSet writers to handle the initial
+	// indexing.
+	if indexIsPopulated {
+		if err := e.loadXSetFilterFromDb(); err != nil {
+			return err
+		}
+	} else {
+		for i := 0; i < numTsetWriters; i++ {
+			go e.tSetWriter()
+		}
+	}
+
+	for i := 0; i < numTsetReaders; i++ {
+		go e.tSetReader()
+	}
+
 	return nil
 }
 
@@ -89,7 +127,7 @@ func (e *encryptedIndexSearcher) Stop() error {
 }
 
 // LoadXSetFilter...
-func (e *encryptedIndexSearcher) LoadXSetFilter(xf *pb.XSetFilter) {
+func (e *encryptedIndexSearcher) PutXSetFilter(xf *pb.XSetFilter) {
 	// Deserialize the xSet bloom filter and load it into memory.
 	filterbuf := bytes.NewBuffer(xf.BloomFilter)
 	err := gob.NewDecoder(filterbuf).Decode(e.xSet)
@@ -155,6 +193,12 @@ func (e *encryptedIndexSearcher) waitForMetaDataInit() {
 	<-e.metaDataRecived
 }
 
+// PutTsetFragment queues a tSet fragment to be written to the DB.
+func (e *encryptedIndexSearcher) PutTsetFragment(tuple *pb.TSetFragment) {
+	req := &tSetWriteReq{tuple}
+	e.tWriteReqs <- req
+}
+
 // tSetWriter accepts incoming requests to write the t-set to the DB.
 func (e *encryptedIndexSearcher) tSetWriter() {
 	//TODO(roasbeef): Kill this guy after client init finished?
@@ -194,14 +238,19 @@ out:
 	e.wg.Done()
 }
 
-// PutTsetFragment queues a tSet fragment to be written to the DB.
-func (e *encryptedIndexSearcher) PutTsetFragment(tuple *pb.TSetFragment) {
-	req := &tSetWriteReq{tuple}
-	e.tWriteReqs <- req
+// TSetSearch...
+func (e *encryptedIndexSearcher) TSetSearch(stag []byte) (chan *tupleData, chan struct{}) {
+	resp := make(chan *tupleData, searchChunkSize)
+	cancel := make(chan struct{}, 1)
+	req := &tSetReadReq{sTag: stag, resps: resp, cancel: cancel}
+	e.tReadReqs <- req
+
+	return resp, cancel
 }
 
 // tSetReader...
 func (e *encryptedIndexSearcher) tSetReader() {
+	e.waitForMetaDataInit()
 out:
 	for {
 	top:
@@ -212,23 +261,42 @@ out:
 			stag := readReq.sTag
 			respChan := readReq.resps
 
-			workerQuit := make(chan struct{})
-			lastTupleFound := make(chan struct{}, 1)
 			i := uint32(0)
+			outChan := make(chan *tupleData, searchChunkSize)
+			batchResults := make(tupleBatch, searchChunkSize)
 			for {
 				select {
-				case <-lastTupleFound:
-					close(respChan)
+				case <-readReq.cancel:
 					break top
 				default:
 				}
 
-				label, bucket, otp := crypto.CalcTsetVals(stag, i)
+				// Launch a batch of workers to retrieve tSet chunks.
+				for j := i; j < i+searchChunkSize; j++ {
+					go e.tupleFetcher(stag, j, outChan)
+				}
 
-				go e.tupleFetcher(label[:], bucket[:], otp[:],
-					lastTupleFound, workerQuit, respChan)
+				// Collect the results of this batch.
+				for m := uint32(0); m < searchChunkSize; m++ {
+					batchResults[i] = <-outChan
+				}
 
-				i++
+				// Sort by worker index.
+				sort.Sort(batchResults)
+
+				// With our odering enforced, send out results
+				// until we reach the end of the inverted index
+				// for this stag.
+				for _, t := range batchResults {
+					if !t.isLast {
+						respChan <- t
+					} else {
+						close(respChan)
+						goto top
+					}
+				}
+
+				i += searchChunkSize
 			}
 		}
 	}
@@ -236,30 +304,24 @@ out:
 }
 
 // tupleFetcher...
-func (e *encryptedIndexSearcher) tupleFetcher(l, b, k []byte, workerQuit chan struct{}, lastTupleFound chan struct{}, respChan chan *tupleData) {
-	select {
-	case <-workerQuit:
-		return
-	default:
-	}
+func (e *encryptedIndexSearcher) tupleFetcher(stag []byte, index uint32, outChan chan *tupleData) {
+	label, bucket, otp := crypto.CalcTsetVals(stag, index)
+	t := &tupleData{}
 
-	err := e.db.View(func(tx *bolt.Tx) error {
+	// TODO(roasbeef): erorr?
+	e.db.View(func(tx *bolt.Tx) error {
 		// Fetch the root t-set bucket.
 		rootBucket := tx.Bucket(tSetBucketKey)
 
 		// Grab the bucket for this tuple.
-		fragmentBucket := rootBucket.Bucket(b)
+		fragmentBucket := rootBucket.Bucket(bucket[:])
 
 		// Decrypt the tuple using it's one-time-pad.
-		encryptedTuple := fragmentBucket.Get(l)
-		decryptedTuple := crypto.XorBytes(k, encryptedTuple)
+		encryptedTuple := fragmentBucket.Get(label[:])
+		decryptedTuple := crypto.XorBytes(otp[:], encryptedTuple)
 
 		// Signal if this is the last element.
 		finishedByte := decryptedTuple[0]
-		if finishedByte == 0x01 {
-			lastTupleFound <- struct{}{}
-			close(workerQuit)
-		}
 
 		eIdLength := e.tSetMetaData.NumEidBytes
 		blindLength := e.tSetMetaData.NumBlindBytes
@@ -267,15 +329,11 @@ func (e *encryptedIndexSearcher) tupleFetcher(l, b, k []byte, workerQuit chan st
 		encryptedId := decryptedTuple[1:eIdLength]
 		blindingVal := decryptedTuple[eIdLength:blindLength]
 
-		respChan <- &tupleData{
-			eId:         encryptedId,
-			blindingVal: blindingVal,
-		}
+		t.eId = encryptedId
+		t.blindingVal = blindingVal
+		t.workerIndex = index
+		t.isLast = finishedByte == 0x01
 		return nil
 	})
-
-	if err != nil {
-		//TODO(roasbeef): Error
-
-	}
+	outChan <- t
 }

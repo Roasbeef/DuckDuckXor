@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"hash"
+	"io"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -18,19 +19,21 @@ import (
 	"golang.org/x/net/context"
 )
 
-// wordIndexCounter...
+// wordIndexCounter is a simple wrapper around a map to create a thread safe
+// multi-counter.
 type wordIndexCounter struct {
 	wordCounter map[string]uint32
-	sync.RWMutex
+	sync.Mutex
 }
 
-// TODO(roasbeef): Move to diff file?
+// NewWordIndexCounter creates and returns a new instance of the counter.
 func NewWordIndexCounter() *wordIndexCounter {
 	return &wordIndexCounter{wordCounter: make(map[string]uint32)}
 }
 
-// readThenIncrement....
-// blinding counter is 1 behind the index counter
+// readThenIncrement reads the current stored counter value for the given word,
+// then incrementing the counter before returning.
+// NOTE: the blinding counter is 1 behind the word-level doc index counter
 func (w *wordIndexCounter) readThenIncrement(term string) uint32 {
 	w.Lock()
 	defer w.Unlock()
@@ -43,11 +46,15 @@ func (w *wordIndexCounter) readThenIncrement(term string) uint32 {
 	return c
 }
 
+// xTag represents an xTag for a particular (word, docId) combination.
+// i.e: g^(xind * wtag). This value is passed around as a serialized ECC point.
 // TODO(roasbeef): Adding functions to this could make downstrema
 // changes easier more testable. Move for xset.go?
 type xTag []byte
 
-// EncryptedIndexGenerator....
+// EncryptedIndexGenerator is responsible for generating and storing the
+// client side encrypted index. This entails generating and sending off t-set
+// fragments to the search server, and computing xtags for conjunctive queries.
 type EncryptedIndexGenerator struct {
 	quit       chan struct{}
 	started    int32
@@ -58,6 +65,9 @@ type EncryptedIndexGenerator struct {
 	finishedXtags     chan []xTag
 	incomingDocuments chan *InvIndexDocument
 
+	closeOnce     sync.Once
+	closeXtagChan func()
+
 	keyMap map[KeyType]*[keySize]byte
 
 	counter *wordIndexCounter
@@ -66,11 +76,10 @@ type EncryptedIndexGenerator struct {
 	curve   elliptic.Curve
 }
 
-// NewEncryptedIndexGenerator....
-// TODO(roasbeef): Collapse inv index here?
-// only actually needed it for the B bit.
-func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType]*[keySize]byte) (*EncryptedIndexGenerator, error) {
-	return &EncryptedIndexGenerator{
+// NewEncryptedIndexGenerator creates and returns a new instance of the
+// EncryptedIndexGenerator.
+func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType]*[keySize]byte, bloom *bloomMaster) (*EncryptedIndexGenerator, error) {
+	e := &EncryptedIndexGenerator{
 		quit:    make(chan struct{}),
 		counter: NewWordIndexCounter(),
 		// TODO(roasbeef): buffer?
@@ -79,10 +88,19 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 		keyMap:            keyMap,
 		curve:             elliptic.P224(),
 		numWorkers:        numWorkers,
-	}, nil
+		bloom:             bloom,
+	}
+	var once sync.Once
+	onceBody := func() {
+		close(e.finishedXtags)
+	}
+	e.closeOnce = once
+	e.closeXtagChan = onceBody
+
+	return e, nil
 }
 
-// Start...
+// Start kicks off the generator, spawning helper goroutines before returning.
 func (e *EncryptedIndexGenerator) Start() error {
 	if atomic.AddInt32(&e.started, 1) != 1 {
 		return nil
@@ -103,7 +121,7 @@ func (e *EncryptedIndexGenerator) Start() error {
 	return nil
 }
 
-// Stop....
+// Stop gracefully stops the index generator and all related helper goroutines.
 func (e *EncryptedIndexGenerator) Stop() error {
 	if atomic.AddInt32(&e.shutdown, 1) != 1 {
 		return nil
@@ -113,7 +131,8 @@ func (e *EncryptedIndexGenerator) Stop() error {
 	return nil
 }
 
-// chanSplitter....
+// chanSplitter is a helper goroutines that copies incoming documents into
+// channels to both the tSet and xSet workers.
 func (e *EncryptedIndexGenerator) chanSplitter(bufferSize int) (chan *InvIndexDocument, chan *InvIndexDocument) {
 	xSetChan := make(chan *InvIndexDocument, bufferSize)
 	tSetChan := make(chan *InvIndexDocument, bufferSize)
@@ -139,18 +158,19 @@ func (e *EncryptedIndexGenerator) chanSplitter(bufferSize int) (chan *InvIndexDo
 	return xSetChan, tSetChan
 }
 
-// xSetWorker...
+// xSetWorker is responsible for generating the resulting xTags for each
+// unique word in incoming document. These xTags are then so they can be sent
+// off downstream to be added to the final xSet bloom filter.
 func (e *EncryptedIndexGenerator) xSetWorker(workChan chan *InvIndexDocument) {
-	//xIndKey := e.keyMap[XIndKey]
-	//xIndPRF := hmac.New(sha256.New, (*xIndKey)[:])
 	xIndKey := e.keyMap[XIndKey]
 	xIndPRF := hmac.New(sha1.New, (*xIndKey)[:16]) // TODO(roasbeef): extract slice
 
-	// TODO(roasbeef): re-name everywhere, not xtag itself but half of it.
+	// TODO(roasbeef): re-name everywhere, not xtag itself but half of it (wtag?)
 	xTagKey := e.keyMap[XTagKey]
 	xTagPRF := hmac.New(sha1.New, (*xTagKey)[:16])
 
-	indBuf := new(bytes.Buffer)
+	indBytes := make([]byte, 16)
+	indBuf := bytes.NewBuffer(indBytes)
 out:
 	for {
 		select {
@@ -163,10 +183,13 @@ out:
 			for word, _ := range index.Words {
 				// xind = F_p(K_i, ind)
 				binary.Write(indBuf, binary.BigEndian, index.DocId)
-				xIndPRF.Write(indBuf.Bytes())
+				_, err := io.Copy(xIndPRF, indBuf)
+				if err != nil {
+					// TODO(roasbeef): hook up errs
+				}
 				xind := xIndPRF.Sum(nil)
 
-				// xtrap = F_p(K_x, w)
+				// wtag = F_p(K_x, w)
 				xTagPRF.Write([]byte(word))
 				wtag := xTagPRF.Sum(nil)
 
@@ -183,6 +206,7 @@ out:
 				e.finishedXtags <- xTags
 			}()
 
+			indBuf.Reset()
 			xTagPRF.Reset()
 			xIndPRF.Reset()
 		case <-e.quit:
@@ -190,12 +214,15 @@ out:
 		}
 	}
 
-	// TODO(roasbeef): do once?
-	close(e.finishedXtags)
+	// Signal the streamer that there aren't any more xTags, but do this
+	// AT MOST once.
+	e.closeOnce.Do(e.closeXtagChan)
 	e.wg.Done()
 }
 
-// bloomStreamer....
+// bloomStreamer is responsible for sending computed xTags off to the
+// bloomMaster so they can be added to the xSet bloom filter and finally be set
+// to the search server.
 func (e *EncryptedIndexGenerator) bloomStreamer() {
 	// Block until the X-Set bloom filter has been created.
 	e.bloom.WaitForXSetInit()
@@ -214,7 +241,10 @@ out:
 	e.wg.Done()
 }
 
-// tSetWorker....
+// tSetWorker is responsible computing and sending off t-set tuples for each
+// unique word per document recieved. This entails computing the proper t-set
+// bucket and label for a tuple, it's blinding value for conjunctive queries,
+// and permuting the document ID, unique for each word.
 // TODO(roasbeef): Can multiple workers send on a stream????
 func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 	tSetStream, err := e.client.UploadTSet(context.Background())
@@ -235,6 +265,7 @@ func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 	sTagKey := e.keyMap[STagKey]
 	sTagPRF := hmac.New(sha1.New, (*sTagKey)[:16])
 
+	// TODO(roasbeef): take out tweak? or add to hash-tree derivation.
 	tweakVal := e.keyMap[PermuteTweak]
 out:
 	for {
@@ -261,11 +292,14 @@ out:
 				// y = xind * z^-1
 				y := computeBlindedXind(z, xind, e.curve.Params().P)
 
-				// Our tuple inverted index tuple element is
-				// then (e, y)
+				// Permute the document ID using a format
+				// preserving encryption scheme.
 				e := permuteDocId(word, wTrapPRF, tweakVal[:4], index.DocId)
 
+				// Our tuple inverted index tuple element is
+				// then (e, y)
 				tSetShard := calcTsetTuple(sTagPRF, word, docCounter, e, y)
+
 				if err := tSetStream.Send(tSetShard); err != nil {
 					// log.Fatalf("Failed to send a doc: %v", err)
 					// TODO(roasbeef): handle errs
@@ -283,7 +317,9 @@ out:
 	e.wg.Done()
 }
 
-// computeBlindingValue....
+// computeBlindingValue computes the blinding value used for blinded
+// Diffie-Helman exponentation for use in the oblivious computatino protocol for
+// conjunctive searches.
 func computeBlindingValue(prf hash.Hash, word string, blindCounter uint32) []byte {
 	// z = F_p(K_z, w || c)
 	var zBuffer bytes.Buffer
@@ -293,7 +329,8 @@ func computeBlindingValue(prf hash.Hash, word string, blindCounter uint32) []byt
 	return prf.Sum(nil)
 }
 
-// computeXind....
+// computeXind computes the xind, which is the result of running the actual
+// document ID through a psuedo-random function.
 func computeXind(prf hash.Hash, ind uint32) []byte {
 	// xind = F_p(K_i, ind)
 	var indBuf bytes.Buffer
@@ -302,7 +339,9 @@ func computeXind(prf hash.Hash, ind uint32) []byte {
 	return prf.Sum(nil)
 }
 
-// computeBlindedXind...
+// computeBlindedXind pre-computes xind*z^-1 for storage server-side for the
+// OXT protocol. z^-1 indicates the multiplicative inverse of z mod the order
+// of our chosen curve.
 func computeBlindedXind(z, xind []byte, groupOrder *big.Int) []byte {
 	// Turn into big ints for mod inverse calculation and mult.
 	zBig := new(big.Int).SetBytes(z)
@@ -314,17 +353,22 @@ func computeBlindedXind(z, xind []byte, groupOrder *big.Int) []byte {
 	return y.Bytes()
 }
 
-// permuteDocId...
+// permuteDocId computes the keyed permutation for the given document ID unique
+// to each word. The keyed permutation is actually an encryption using AES-FFX
+// a format preserving encryption scheme based on AES and a feisel network.
+// The key for the AES-FFX scheme is derived from the word, making each
+// encrypted document unique to each distinct word.
 func permuteDocId(word string, wPrf hash.Hash, tweak []byte, docId uint32) []byte {
 	// K_e = F(k_s, w)
 	wPrf.Write([]byte(word))
 	wordPermKey := wPrf.Sum(nil)
 
-	// e = Enc(Ke, ind)
 	wordPerm, err := aesffx.NewCipher(16, wordPermKey, tweak)
 	if err != nil {
 		// TODO(roasbeef): handle err
 	}
+
+	// e = Enc(Ke, ind)
 	var xindBuf bytes.Buffer
 	binary.Write(&xindBuf, binary.BigEndian, docId)
 	xindString := hex.EncodeToString(xindBuf.Bytes())
@@ -340,7 +384,8 @@ func permuteDocId(word string, wPrf hash.Hash, tweak []byte, docId uint32) []byt
 	return permutedBytes
 }
 
-// calcTsetTuple....
+// calcTsetTuple calculates indexing information for the a given word and tuple
+// data pair.
 func calcTsetTuple(sprf hash.Hash, word string, tupleIndex uint32, permutedId, blindedXind []byte) *pb.TSetFragment {
 	// stag = F(K_t, w)
 	sprf.Write([]byte(word))

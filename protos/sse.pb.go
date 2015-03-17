@@ -9,6 +9,8 @@ It is generated from these files:
 	sse.proto
 
 It has these top-level messages:
+	DocInfo
+	EncryptedDocInfo
 	MetaData
 	MetaDataAck
 	TSetFragment
@@ -64,6 +66,22 @@ var BooleanSearchQuery_SearchType_value = map[string]int32{
 func (x BooleanSearchQuery_SearchType) String() string {
 	return proto.EnumName(BooleanSearchQuery_SearchType_name, int32(x))
 }
+
+type DocInfo struct {
+	DocId uint32 `protobuf:"varint,1,opt,name=doc_id" json:"doc_id,omitempty"`
+}
+
+func (m *DocInfo) Reset()         { *m = DocInfo{} }
+func (m *DocInfo) String() string { return proto.CompactTextString(m) }
+func (*DocInfo) ProtoMessage()    {}
+
+type EncryptedDocInfo struct {
+	EncryptedId []byte `protobuf:"bytes,1,opt,name=encrypted_id,proto3" json:"encrypted_id,omitempty"`
+}
+
+func (m *EncryptedDocInfo) Reset()         { *m = EncryptedDocInfo{} }
+func (m *EncryptedDocInfo) String() string { return proto.CompactTextString(m) }
+func (*EncryptedDocInfo) ProtoMessage()    {}
 
 type MetaData struct {
 	NumEidBytes   int32 `protobuf:"varint,1,opt,name=num_eid_bytes" json:"num_eid_bytes,omitempty"`
@@ -262,6 +280,7 @@ type EncryptedSearchClient interface {
 	UploadXSetFilter(ctx context.Context, in *XSetFilter, opts ...grpc.CallOption) (*FilterAck, error)
 	UploadCipherDocs(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_UploadCipherDocsClient, error)
 	KeywordSearch(ctx context.Context, in *KeywordQuery, opts ...grpc.CallOption) (EncryptedSearch_KeywordSearchClient, error)
+	FetchDocuments(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_FetchDocumentsClient, error)
 	ConjunctiveSearchRequest(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_ConjunctiveSearchRequestClient, error)
 	XTokenExchange(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_XTokenExchangeClient, error)
 }
@@ -376,7 +395,7 @@ func (c *encryptedSearchClient) KeywordSearch(ctx context.Context, in *KeywordQu
 }
 
 type EncryptedSearch_KeywordSearchClient interface {
-	Recv() (*CipherDoc, error)
+	Recv() (*EncryptedDocInfo, error)
 	grpc.ClientStream
 }
 
@@ -384,7 +403,38 @@ type encryptedSearchKeywordSearchClient struct {
 	grpc.ClientStream
 }
 
-func (x *encryptedSearchKeywordSearchClient) Recv() (*CipherDoc, error) {
+func (x *encryptedSearchKeywordSearchClient) Recv() (*EncryptedDocInfo, error) {
+	m := new(EncryptedDocInfo)
+	if err := x.ClientStream.RecvProto(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *encryptedSearchClient) FetchDocuments(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_FetchDocumentsClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[3], c.cc, "/sse_protos.EncryptedSearch/FetchDocuments", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &encryptedSearchFetchDocumentsClient{stream}
+	return x, nil
+}
+
+type EncryptedSearch_FetchDocumentsClient interface {
+	Send(*DocInfo) error
+	Recv() (*CipherDoc, error)
+	grpc.ClientStream
+}
+
+type encryptedSearchFetchDocumentsClient struct {
+	grpc.ClientStream
+}
+
+func (x *encryptedSearchFetchDocumentsClient) Send(m *DocInfo) error {
+	return x.ClientStream.SendProto(m)
+}
+
+func (x *encryptedSearchFetchDocumentsClient) Recv() (*CipherDoc, error) {
 	m := new(CipherDoc)
 	if err := x.ClientStream.RecvProto(m); err != nil {
 		return nil, err
@@ -393,7 +443,7 @@ func (x *encryptedSearchKeywordSearchClient) Recv() (*CipherDoc, error) {
 }
 
 func (c *encryptedSearchClient) ConjunctiveSearchRequest(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_ConjunctiveSearchRequestClient, error) {
-	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[3], c.cc, "/sse_protos.EncryptedSearch/ConjunctiveSearchRequest", opts...)
+	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[4], c.cc, "/sse_protos.EncryptedSearch/ConjunctiveSearchRequest", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +474,7 @@ func (x *encryptedSearchConjunctiveSearchRequestClient) Recv() (*CipherDoc, erro
 }
 
 func (c *encryptedSearchClient) XTokenExchange(ctx context.Context, opts ...grpc.CallOption) (EncryptedSearch_XTokenExchangeClient, error) {
-	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[4], c.cc, "/sse_protos.EncryptedSearch/XTokenExchange", opts...)
+	stream, err := grpc.NewClientStream(ctx, &_EncryptedSearch_serviceDesc.Streams[5], c.cc, "/sse_protos.EncryptedSearch/XTokenExchange", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -462,6 +512,7 @@ type EncryptedSearchServer interface {
 	UploadXSetFilter(context.Context, *XSetFilter) (*FilterAck, error)
 	UploadCipherDocs(EncryptedSearch_UploadCipherDocsServer) error
 	KeywordSearch(*KeywordQuery, EncryptedSearch_KeywordSearchServer) error
+	FetchDocuments(EncryptedSearch_FetchDocumentsServer) error
 	ConjunctiveSearchRequest(EncryptedSearch_ConjunctiveSearchRequestServer) error
 	XTokenExchange(EncryptedSearch_XTokenExchangeServer) error
 }
@@ -555,7 +606,7 @@ func _EncryptedSearch_KeywordSearch_Handler(srv interface{}, stream grpc.ServerS
 }
 
 type EncryptedSearch_KeywordSearchServer interface {
-	Send(*CipherDoc) error
+	Send(*EncryptedDocInfo) error
 	grpc.ServerStream
 }
 
@@ -563,8 +614,34 @@ type encryptedSearchKeywordSearchServer struct {
 	grpc.ServerStream
 }
 
-func (x *encryptedSearchKeywordSearchServer) Send(m *CipherDoc) error {
+func (x *encryptedSearchKeywordSearchServer) Send(m *EncryptedDocInfo) error {
 	return x.ServerStream.SendProto(m)
+}
+
+func _EncryptedSearch_FetchDocuments_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(EncryptedSearchServer).FetchDocuments(&encryptedSearchFetchDocumentsServer{stream})
+}
+
+type EncryptedSearch_FetchDocumentsServer interface {
+	Send(*CipherDoc) error
+	Recv() (*DocInfo, error)
+	grpc.ServerStream
+}
+
+type encryptedSearchFetchDocumentsServer struct {
+	grpc.ServerStream
+}
+
+func (x *encryptedSearchFetchDocumentsServer) Send(m *CipherDoc) error {
+	return x.ServerStream.SendProto(m)
+}
+
+func (x *encryptedSearchFetchDocumentsServer) Recv() (*DocInfo, error) {
+	m := new(DocInfo)
+	if err := x.ServerStream.RecvProto(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func _EncryptedSearch_ConjunctiveSearchRequest_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -647,6 +724,12 @@ var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
 			StreamName:    "KeywordSearch",
 			Handler:       _EncryptedSearch_KeywordSearch_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "FetchDocuments",
+			Handler:       _EncryptedSearch_FetchDocuments_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 		{
 			StreamName:    "ConjunctiveSearchRequest",

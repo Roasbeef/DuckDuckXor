@@ -11,12 +11,22 @@ service EncryptedSearch {
 
     rpc UploadCipherDocs(stream CipherDoc) returns (CipherDocAck);
 
-    rpc KeywordSearch(KeywordQuery) returns (stream CipherDoc);
+    rpc KeywordSearch(KeywordQuery) returns (stream EncryptedDocInfo);
+
+    rpc FetchDocuments(stream DocInfo) returns (stream CipherDoc);
 
     rpc ConjunctiveSearchRequest(stream BooleanSearchQuery) returns (stream CipherDoc);
 
     rpc XTokenExchange(stream XTokenRequest) returns (stream XTokenResponse);
 
+}
+
+message DocInfo {
+    uint32 doc_id = 1;
+}
+
+message EncryptedDocInfo {
+    bytes encrypted_id = 1;
 }
 
 message MetaData {

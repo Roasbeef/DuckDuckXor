@@ -1,6 +1,9 @@
 package main
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type TSetUpdateMessage struct {
 	docID int32
@@ -21,6 +24,7 @@ type InvertedIndexCalculator struct {
 	started             int32
 	numWorkers          uint32
 	numReducers         uint32
+	beta_indeces        chan wordPair
 	mappersDone         chan struct{}
 	shufflersDone       chan struct{}
 	shufflerQuit        chan struct{}
@@ -46,6 +50,7 @@ func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndex
 		shufflerQuit:      make(chan struct{}),
 		reducerQuit:       make(chan struct{}),
 		abort:             abort,
+		beta_indeces:      make(chan wordPair),
 		numWorkers:        numWorkers,
 		numReducers:       numReducers,
 	}
@@ -93,10 +98,10 @@ out:
 				lastTermInDocument[token] = maxInt(lastTermInDocument[token], currentID)
 				counter++
 			}
-			i.finalCounterEntries <- counter
-			i.finalIndexEntries <- lastTermInDocument
 		}
 	}
+	i.finalCounterEntries <- counter
+	i.finalIndexEntries <- lastTermInDocument
 	<-i.mappersDone
 	if len(i.mappersDone) == 0 {
 		close(i.shufflerQuit)
@@ -124,10 +129,42 @@ out:
 				hashValue = hashValue % i.numReducers
 				i.reduceMap[hashValue] <- wordPair{key, int(val)}
 			}
+		case <-i.shufflerQuit:
+			break out
 		}
 	}
+	<-i.shufflersDone
+	if len(i.shufflersDone) == 0 {
+		close(i.reducerQuit)
+	}
+	i.wg.Done()
 }
 
 func (i *InvertedIndexCalculator) reducer(key uint32) {
+
+	count := 0
+	input := i.reduceMap[key]
+	subSet := make(map[string]int)
+out:
+	for {
+		select {
+		case <-i.quit:
+			break out
+		case val := <-input:
+			//TODO why am I doing this count?
+			if subSet[val.key] == 0 {
+				count++
+			}
+			if val.key == "golly" {
+				fmt.Printf("gosh golly what a cool input!\n")
+			}
+
+			//TODO:I realize that this is HORRIBLE. I am keeping this here until after yang
+			//functionally it will work, but this wont stay here
+			subSet[val.key] = int(maxInt(uint32(subSet[val.key]), uint32(val.tf)))
+		case <-i.reducerQuit:
+			break out
+		}
+	}
 
 }

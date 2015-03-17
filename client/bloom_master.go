@@ -109,7 +109,7 @@ type bloomMaster struct {
 
 	// The bloom filter containing all xTags in the X-Set.
 	xSetFilter        *bloom.BloomFilter
-	xFinalSize        int32
+	xFinalSize        uint
 	xNumAddedElements int32
 
 	// The bloom filters which represent buckets of frequency ranges of
@@ -389,6 +389,7 @@ func (b *bloomMaster) QueueFreqBucketAdd(targetBucket BloomFrequencyBucket, word
 func (b *bloomMaster) handleXSetInit(msg *xSetSizeInitMsg) {
 	// Create the x-set bloom filter now that we have the proper parameters.
 	b.xSetFilter = bloom.NewWithEstimates(msg.numElements, fpRate)
+	b.xFinalSize = msg.numElements
 
 	// Notify any upstream workers that are waiting for the initialization of
 	// the bloom filter. We're essentially using the chan struct{} as a
@@ -400,11 +401,12 @@ func (b *bloomMaster) handleXSetInit(msg *xSetSizeInitMsg) {
 func (b *bloomMaster) handleXSetAdd(msg *xSetAddMsg) {
 	for _, xTag := range msg.xTags {
 		b.xSetFilter.Add(xTag)
-		b.xNumAddedElements += 1
+		// TODO(Roasbeef): channel scheme instead??
+		atomic.AddInt32(&b.xNumAddedElements, 1)
 	}
 
 	// Final element has been added, signal the streamer to begin.
-	if b.xNumAddedElements == b.xFinalSize {
+	if uint(b.xNumAddedElements) == b.xFinalSize {
 		close(b.xFilterFinished)
 	}
 }
@@ -439,7 +441,6 @@ func (b *bloomMaster) handleFreqBucketAdd(msg *freqBucketAddMsg) {
 		numAdded++
 	}
 
-	// TODO(roasbeef): race condition here?
 	// Send off the finished bloom filter if the bucket is now full.
 	b.bucketStatsMtx.Lock()
 	b.currentBucketSize[targetBucket] += numAdded

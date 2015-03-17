@@ -293,6 +293,7 @@ out:
 // and sends the entire X-Set bloom filter.
 func (b *bloomMaster) xFilterUploader() {
 out:
+	// TODO(roasbeef): for loop needed?
 	for {
 		select {
 		case <-b.quit:

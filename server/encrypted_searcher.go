@@ -30,8 +30,9 @@ type tSetWriteReq struct {
 
 // tSetWriteReq...
 type tSetReadReq struct {
-	sTag  []byte
-	resps chan *tupleData // Should be buffered request side.
+	sTag   []byte
+	resps  chan *tupleData // Should be buffered request side.
+	cancel chan struct{}
 }
 
 type tupleData struct {
@@ -239,6 +240,7 @@ func (e *encryptedIndexSearcher) PutTsetFragment(tuple *pb.TSetFragment) {
 
 // tSetReader...
 func (e *encryptedIndexSearcher) tSetReader() {
+	e.waitForMetaDataInit()
 out:
 	for {
 	top:
@@ -253,6 +255,12 @@ out:
 			outChan := make(chan *tupleData, searchChunkSize)
 			batchResults := make(tupleBatch, searchChunkSize)
 			for {
+				select {
+				case <-readReq.cancel:
+					break top
+				default:
+				}
+
 				// Launch a batch of workers to retrieve tSet chunks.
 				for j := i; j < i+searchChunkSize; j++ {
 					go e.tupleFetcher(stag, j, outChan)
@@ -273,6 +281,7 @@ out:
 					if !t.isLast {
 						respChan <- t
 					} else {
+						close(respChan)
 						goto top
 					}
 				}

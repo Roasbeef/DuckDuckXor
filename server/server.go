@@ -52,7 +52,7 @@ func (e *encryptedSearchServer) UploadTSet(stream pb.EncryptedSearch_UploadTSetS
 // UploadXSetFilter loads the client-side created xSet bloom filter into memory
 // and the database.
 func (e *encryptedSearchServer) UploadXSetFilter(ctx context.Context, xFilter *pb.XSetFilter) (*pb.FilterAck, error) {
-	e.encryptedIndex.LoadXSetFilter(xFilter)
+	e.encryptedIndex.PutXSetFilter(xFilter)
 	return &pb.FilterAck{Ack: true}, nil
 }
 

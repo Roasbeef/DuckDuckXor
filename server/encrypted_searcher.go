@@ -127,7 +127,7 @@ func (e *encryptedIndexSearcher) Stop() error {
 }
 
 // LoadXSetFilter...
-func (e *encryptedIndexSearcher) LoadXSetFilter(xf *pb.XSetFilter) {
+func (e *encryptedIndexSearcher) PutXSetFilter(xf *pb.XSetFilter) {
 	// Deserialize the xSet bloom filter and load it into memory.
 	filterbuf := bytes.NewBuffer(xf.BloomFilter)
 	err := gob.NewDecoder(filterbuf).Decode(e.xSet)
@@ -193,6 +193,12 @@ func (e *encryptedIndexSearcher) waitForMetaDataInit() {
 	<-e.metaDataRecived
 }
 
+// PutTsetFragment queues a tSet fragment to be written to the DB.
+func (e *encryptedIndexSearcher) PutTsetFragment(tuple *pb.TSetFragment) {
+	req := &tSetWriteReq{tuple}
+	e.tWriteReqs <- req
+}
+
 // tSetWriter accepts incoming requests to write the t-set to the DB.
 func (e *encryptedIndexSearcher) tSetWriter() {
 	//TODO(roasbeef): Kill this guy after client init finished?
@@ -232,10 +238,14 @@ out:
 	e.wg.Done()
 }
 
-// PutTsetFragment queues a tSet fragment to be written to the DB.
-func (e *encryptedIndexSearcher) PutTsetFragment(tuple *pb.TSetFragment) {
-	req := &tSetWriteReq{tuple}
-	e.tWriteReqs <- req
+// TSetSearch...
+func (e *encryptedIndexSearcher) TSetSearch(stag []byte) (chan *tupleData, chan struct{}) {
+	resp := make(chan *tupleData, searchChunkSize)
+	cancel := make(chan struct{}, 1)
+	req := &tSetReadReq{sTag: stag, resps: resp, cancel: cancel}
+	e.tReadReqs <- req
+
+	return resp, cancel
 }
 
 // tSetReader...

@@ -189,5 +189,7 @@ func (d *documentDatabase) RetrieveDoc(docId uint32) (*pb.CipherDoc, error) {
 	resp := make(chan *pb.CipherDoc, 1)
 	req := &readDocRequest{err: err, docId: docId, resp: resp}
 
+	d.readRequests <- req
+
 	return <-req.resp, <-req.err
 }

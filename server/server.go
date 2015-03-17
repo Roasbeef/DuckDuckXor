@@ -73,6 +73,38 @@ func (e *encryptedSearchServer) UploadCipherDocs(stream pb.EncryptedSearch_Uploa
 }
 
 func (e *encryptedSearchServer) KeywordSearch(query *pb.KeywordQuery, stream pb.EncryptedSearch_KeywordSearchServer) error {
+	stag := query.Stag
+
+	// Kick off the single word search.
+	respStream, cancelSearch := e.encryptedIndex.TSetSearch(stag)
+
+	// Read responses one by one off the channel, then sending them down
+	// the client stream.
+	for resp := range respStream {
+		if err := stream.Send(&pb.EncryptedDocInfo{EncryptedId: resp.eId}); err != nil {
+			cancelSearch <- struct{}{}
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *encryptedSearchServer) FetchDocuments(stream pb.EncryptedSearch_FetchDocumentsServer) error {
+	for {
+		docReq, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+
+		doc, err := e.docStore.RetrieveDoc(docReq.DocId)
+		if err != nil {
+			return err
+		}
+
+		if err := stream.Send(doc); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

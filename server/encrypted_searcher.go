@@ -85,6 +85,33 @@ func (e *encryptedIndexSearcher) Start() error {
 	if atomic.AddInt32(&e.started, 1) != 1 {
 		return nil
 	}
+
+	var indexIsPopulated bool
+	err := e.db.View(func(tx *bolt.Tx) error {
+		indexIsPopulated = tx.Bucket(indexBucketKey) != nil
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// If the index has been created already. Then load the X-Set filter
+	// from the DB. Otherwise, create tSet writers to handle the initial
+	// indexing.
+	if indexIsPopulated {
+		if err := e.loadXSetFilterFromDb(); err != nil {
+			return err
+		}
+	} else {
+		for i := 0; i < numTsetWriters; i++ {
+			go e.tSetWriter()
+		}
+	}
+
+	for i := 0; i < numTsetReaders; i++ {
+		go e.tSetReader()
+	}
+
 	return nil
 }
 

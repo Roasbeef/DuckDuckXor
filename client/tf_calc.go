@@ -121,7 +121,7 @@ func (t *TermFrequencyCalculator) initShufflers() {
 		t.shufflersDone <- struct{}{}
 		go t.shuffler()
 	}
-
+	fmt.Printf("shufflers initialized\n")
 }
 
 func (t *TermFrequencyCalculator) waitForBloomFilter() {
@@ -153,7 +153,6 @@ out:
 }
 
 func (t *TermFrequencyCalculator) shuffler() {
-	fmt.Printf("starting shuffler\n")
 out:
 	for {
 		select {
@@ -170,7 +169,6 @@ out:
 		}
 
 	}
-	fmt.Printf("terminating shuffler\n")
 	<-t.shufflersDone
 	if len(t.shufflersDone) == 0 {
 		close(t.reducerQuit)

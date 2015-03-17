@@ -21,7 +21,7 @@ import (
 // wordIndexCounter...
 type wordIndexCounter struct {
 	wordCounter map[string]uint32
-	sync.RWMutex
+	sync.Mutex
 }
 
 // TODO(roasbeef): Move to diff file?

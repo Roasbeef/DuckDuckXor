@@ -240,13 +240,11 @@ out:
 					return err
 				}
 
-				err = bloomBucket.Put(bucketToKey[fBloom.whichBucket],
-					serializedFilter)
-				if err != nil {
-					return err
-				}
-
-				return nil
+				// Write the serializedFilter to disk.
+				return bloomBucket.Put(
+					bucketToKey[fBloom.whichBucket],
+					serializedFilter,
+				)
 			})
 			if err != nil {
 				// TODO(roasbeef): handle errs

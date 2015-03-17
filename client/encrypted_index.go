@@ -162,7 +162,8 @@ func (e *EncryptedIndexGenerator) xSetWorker(workChan chan *InvIndexDocument) {
 	xTagKey := e.keyMap[XTagKey]
 	xTagPRF := hmac.New(sha1.New, (*xTagKey)[:16])
 
-	indBuf := new(bytes.Buffer)
+	indBytes := make([]byte, 16)
+	indBuf := bytes.NewBuffer(indBytes)
 out:
 	for {
 		select {
@@ -175,7 +176,10 @@ out:
 			for word, _ := range index.Words {
 				// xind = F_p(K_i, ind)
 				binary.Write(indBuf, binary.BigEndian, index.DocId)
-				xIndPRF.Write(indBuf.Bytes())
+				_, err := io.Copy(xIndPRF, indBuf)
+				if err != nil {
+					// TODO(roasbeef): hook up errs
+				}
 				xind := xIndPRF.Sum(nil)
 
 				// xtrap = F_p(K_x, w)
@@ -195,6 +199,7 @@ out:
 				e.finishedXtags <- xTags
 			}()
 
+			indBuf.Reset()
 			xTagPRF.Reset()
 			xIndPRF.Reset()
 		case <-e.quit:

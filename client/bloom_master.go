@@ -139,7 +139,7 @@ func newBloomMaster(db *bolt.DB, numWorkers int) (*bloomMaster, error) {
 	firstTime := false
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bloomBucketKey))
-		firstTime = !(b == nil)
+		firstTime = (b == nil)
 		return nil
 	})
 	if err != nil {
@@ -147,8 +147,10 @@ func newBloomMaster(db *bolt.DB, numWorkers int) (*bloomMaster, error) {
 	}
 
 	return &bloomMaster{
+		db:                 db,
 		isFirstTime:        firstTime,
 		msgChan:            make(chan interface{}, numWorkers*3),
+		quit:               make(chan struct{}),
 		xSetReady:          make(chan struct{}),
 		freqBucketsReady:   make(chan struct{}),
 		xFilterFinished:    make(chan struct{}),
@@ -177,6 +179,16 @@ func (b *bloomMaster) Start() error {
 
 		b.wg.Add(1)
 		go b.freqBloomSaver()
+	} else {
+
+		// Load the buckets into memory for aide with conjunctive queries.
+		err := b.db.View(func(tx *bolt.Tx) error {
+			fBucket := tx.Bucket(bloomBucketKey)
+			return b.loadFiltersFromDb(fBucket)
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	b.wg.Add(1)
@@ -446,4 +458,27 @@ func (b *bloomMaster) QueryWordFrequency(word string) BloomFrequencyBucket {
 	query := &wordQueryRequest{query: word, resp: make(chan BloomFrequencyBucket)}
 	b.wordQueries <- query
 	return <-query.resp
+}
+
+// loadFiltersFromDb retrives and deserializes each frequency bucket bloom
+// filter form the DB.
+func (b *bloomMaster) loadFiltersFromDb(bloomBucket *bolt.Bucket) error {
+	for i := 0; i < numBuckets; i++ {
+		filterBucket := BloomFrequencyBucket(i)
+		key := bucketToKey[filterBucket]
+
+		serializedFilter := bloomBucket.Get(key)
+		if serializedFilter == nil {
+			return fmt.Errorf("Frequency bloom filter %v not found", i)
+		}
+
+		var filter bloom.BloomFilter
+		if err := filter.GobDecode(serializedFilter); err != nil {
+			return fmt.Errorf("Unable to deserialize filter: %v", err)
+		}
+
+		b.bloomFreqBuckets[filterBucket] = &filter
+
+	}
+	return nil
 }

@@ -133,9 +133,9 @@ func (e *EncryptedIndexGenerator) Stop() error {
 
 // chanSplitter is a helper goroutines that copies incoming documents into
 // channels to both the tSet and xSet workers.
-func (e *EncryptedIndexGenerator) chanSplitter(bufferSize int) (chan *InvIndexDocument, chan *InvIndexDocument) {
-	xSetChan := make(chan *InvIndexDocument, bufferSize)
-	tSetChan := make(chan *InvIndexDocument, bufferSize)
+func (e *EncryptedIndexGenerator) chanSplitter() (chan *InvIndexDocument, chan *InvIndexDocument) {
+	xSetChan := make(chan *InvIndexDocument)
+	tSetChan := make(chan *InvIndexDocument)
 	go func() {
 	out:
 		for {

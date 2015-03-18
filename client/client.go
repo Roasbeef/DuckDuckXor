@@ -7,6 +7,7 @@ import (
 	"io"
 	"runtime"
 
+	"github.com/conformal/btcwallet/snacl"
 	pb "github.com/roasbeef/DuckDuckXor/protos"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -29,9 +30,15 @@ func main() {
 
 }
 
+type plainDoc struct {
+	plainbytes []byte
+	docId      uint32
+}
+
 type clientDaemon struct {
-	eDocs chan *pb.EncryptedDocInfo
-	keys  KeyManager
+	eDocs  chan *pb.EncryptedDocInfo
+	keys   KeyManager
+	docKey snacl.CryptoKey
 }
 
 func (c *clientDaemon) search(query string) {
@@ -100,7 +107,9 @@ func (c *clientDaemon) fetchDocuments(client pb.EncryptedSearchClient) {
 		if err != nil {
 			//TODO handle errors
 		}
-		decryptDoc(cDoc)
+		b := c.decryptDoc(cDoc)
+		p := pb.PlainDoc{cDoc.DocId, b}
+
 	}
 }
 func (c *clientDaemon) encryptQuery(s string) []byte {
@@ -115,6 +124,11 @@ func decryptDocInfo(eDoc *pb.EncryptedDocInfo) *pb.DocInfo {
 
 }
 
-func decryptDoc(eDoc *pb.CipherDoc) *document {
-	return &document{nil, 0}
+func (c *clientDaemon) decryptDoc(eDoc *pb.CipherDoc) []byte {
+	plainTextBytes, err := c.docKey.Decrypt(eDoc.EncryptedDoc)
+	//TODO store doc names
+	if err != nil {
+		//TODO handle error
+	}
+	return plainTextBytes
 }

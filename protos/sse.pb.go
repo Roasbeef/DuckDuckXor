@@ -18,6 +18,7 @@ It has these top-level messages:
 	FilterAck
 	TSetAck
 	CipherDoc
+	PlainDoc
 	CipherDocAck
 	KeywordQuery
 	BooleanSearchQuery
@@ -145,6 +146,15 @@ type CipherDoc struct {
 func (m *CipherDoc) Reset()         { *m = CipherDoc{} }
 func (m *CipherDoc) String() string { return proto.CompactTextString(m) }
 func (*CipherDoc) ProtoMessage()    {}
+
+type PlainDoc struct {
+	DocId    uint32 `protobuf:"varint,1,opt,name=doc_id" json:"doc_id,omitempty"`
+	DocBytes []byte `protobuf:"bytes,2,opt,name=doc_bytes,proto3" json:"doc_bytes,omitempty"`
+}
+
+func (m *PlainDoc) Reset()         { *m = PlainDoc{} }
+func (m *PlainDoc) String() string { return proto.CompactTextString(m) }
+func (*PlainDoc) ProtoMessage()    {}
 
 type CipherDocAck struct {
 	Ack bool `protobuf:"varint,1,opt,name=ack" json:"ack,omitempty"`
@@ -742,6 +752,96 @@ var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
 			Handler:       _EncryptedSearch_XTokenExchange_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+	},
+}
+
+// Client API for ProxySearch service
+
+type ProxySearchClient interface {
+	Search(ctx context.Context, in *KeywordQuery, opts ...grpc.CallOption) (ProxySearch_SearchClient, error)
+}
+
+type proxySearchClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewProxySearchClient(cc *grpc.ClientConn) ProxySearchClient {
+	return &proxySearchClient{cc}
+}
+
+func (c *proxySearchClient) Search(ctx context.Context, in *KeywordQuery, opts ...grpc.CallOption) (ProxySearch_SearchClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_ProxySearch_serviceDesc.Streams[0], c.cc, "/sse_protos.ProxySearch/Search", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &proxySearchSearchClient{stream}
+	if err := x.ClientStream.SendProto(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type ProxySearch_SearchClient interface {
+	Recv() (*PlainDoc, error)
+	grpc.ClientStream
+}
+
+type proxySearchSearchClient struct {
+	grpc.ClientStream
+}
+
+func (x *proxySearchSearchClient) Recv() (*PlainDoc, error) {
+	m := new(PlainDoc)
+	if err := x.ClientStream.RecvProto(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// Server API for ProxySearch service
+
+type ProxySearchServer interface {
+	Search(*KeywordQuery, ProxySearch_SearchServer) error
+}
+
+func RegisterProxySearchServer(s *grpc.Server, srv ProxySearchServer) {
+	s.RegisterService(&_ProxySearch_serviceDesc, srv)
+}
+
+func _ProxySearch_Search_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(KeywordQuery)
+	if err := stream.RecvProto(m); err != nil {
+		return err
+	}
+	return srv.(ProxySearchServer).Search(m, &proxySearchSearchServer{stream})
+}
+
+type ProxySearch_SearchServer interface {
+	Send(*PlainDoc) error
+	grpc.ServerStream
+}
+
+type proxySearchSearchServer struct {
+	grpc.ServerStream
+}
+
+func (x *proxySearchSearchServer) Send(m *PlainDoc) error {
+	return x.ServerStream.SendProto(m)
+}
+
+var _ProxySearch_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "sse_protos.ProxySearch",
+	HandlerType: (*ProxySearchServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Search",
+			Handler:       _ProxySearch_Search_Handler,
+			ServerStreams: true,
 		},
 	},
 }

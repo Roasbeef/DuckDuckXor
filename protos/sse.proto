@@ -21,6 +21,12 @@ service EncryptedSearch {
 
 }
 
+service ProxySearch{
+
+    rpc Search(KeywordQuery) returns ( stream PlainDoc);
+
+}
+
 message DocInfo {
     uint32 doc_id = 1;
 }
@@ -69,6 +75,11 @@ message CipherDoc {
     // CipherDoc ID.
     uint32 doc_id = 1;
     bytes encrypted_doc = 2;
+}
+
+message PlainDoc {
+    uint32 doc_id = 1;
+    bytes doc_bytes = 2;
 }
 
 message CipherDocAck {

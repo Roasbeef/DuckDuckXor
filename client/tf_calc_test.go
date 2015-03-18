@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sync"
 	"testing"
 )
 
@@ -45,26 +46,44 @@ out:
 }
 
 func TestShuffler(t *testing.T) {
+
+	var wg sync.WaitGroup
 	fmt.Printf("testing shuffler\n")
 	a := make(map[string]int)
 	a["hello"] = 5
 	a["goodbye"] = 4
 	a["golly"] = 3
 	tf := NewTermFrequencyCalculator(1, nil, nil, nil)
-	tf.wg.Add(1)
 	tf.initShufflers()
 	fmt.Printf("shufflers initialized\n")
 	tf.TermFreq <- a
 
-	word := <-tf.reduceMap[Hash("hello")%tf.numReducers]
-	if word.key != "hello" || word.tf != 5 {
-		t.Error("recieved incorrect value from map: expected hello but got " + word.key)
-	}
-	word = <-tf.reduceMap[Hash("goodbye")%tf.numReducers]
-	if word.key != "goodbye" || word.tf != 4 {
-		t.Error("recieved incorrect value from map: expected goodbye but got " + word.key)
-	}
-	close(tf.shufflerQuit)
+	fmt.Printf("reading shuffle values\n")
+	wg.Add(3)
+	go func() {
+		word := <-tf.reduceMap[Hash("hello")%tf.numReducers]
+		if word.key != "hello" || word.tf != 5 {
+			t.Error("recieved incorrect value from map: expected hello but got " + word.key)
+		}
+		wg.Done()
+	}()
+	go func() {
+		word := <-tf.reduceMap[Hash("goodbye")%tf.numReducers]
+		if word.key != "goodbye" || word.tf != 4 {
+			t.Error("recieved incorrect value from map: expected goodbye but got " + word.key)
+		}
+		wg.Done()
+	}()
+
+	go func() {
+		word := <-tf.reduceMap[Hash("golly")%tf.numReducers]
+		if word.key != "golly" || word.tf != 3 {
+			t.Error("recieved incorrect value from map: expected golly  but got " + word.key)
+		}
+		wg.Done()
+	}()
+	wg.Wait()
+	close(tf.TermFreq)
 
 }
 
@@ -82,8 +101,7 @@ func TestReducer(t *testing.T) {
 	tf.initReducers()
 	tf.TermFreq <- a
 	tf.TermFreq <- b
-	fmt.Printf("running reducers")
-	close(tf.shufflerQuit)
+	close(tf.TermFreq)
 	b100 := uint(0)
 	for i := 0; i < 26; i++ {
 		a := <-tf.bloomSizeChan

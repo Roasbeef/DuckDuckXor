@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"runtime"
+
+	pb "github.com/roasbeef/DuckDuckXor/protos"
 )
 
 var (
@@ -19,9 +21,18 @@ func init() {
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	//i := NewCorpusReader("..")
-	//i.Start()
-	//for p := range i.DocOut {
-	//fmt.Println("got doc", p.Name())
-	//}
+}
+
+type clientDaemon struct {
+}
+
+func (c *clientDaemon) requestSearch(qstream pb.EncryptedSearch_UploadTSetServer, query string) {
+	/*conn, err := grpc.Dial(*serverAddr)
+	if err != nil {
+		//TODO handle error
+
+	}
+	client := pb.NewEncryptedSearchClient(conn)
+	//TODO encrypt keyword before query
+	client.KeywordSearch(query)*/
 }

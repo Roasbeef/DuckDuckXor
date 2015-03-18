@@ -63,22 +63,49 @@ func (c *clientDaemon) recieveDocuments(stream pb.EncryptedSearch_KeywordSearchC
 
 }
 
-func (c *clientDaemon) fetchDocuments(client pb.EncryptedSearchClient) {
+func (c *clientDaemon) sendFetchRequests(client pb.EncryptedSearchClient) {
 
 	fetch, err := client.FetchDocuments(context.Background())
-	doc := <-c.eDocs
-	fetch.Send(decryptDocs(doc))
 	if err != nil {
 		//TODO handle errors
 	}
+	for {
+		select {
+		case doc := <-c.eDocs:
+			err = fetch.Send(decryptDocInfo(doc))
+			if err != nil {
+				//TODO handle errors
+			}
+
+		}
+	}
+
 }
 
+func (c *clientDaemon) fetchDocuments(client pb.EncryptedSearchClient) {
+
+	fetch, err := client.FetchDocuments(context.Background())
+	if err != nil {
+		//TODO handle errors
+	}
+	for {
+		cDoc, err := fetch.Recv() //cipherDoc = uint32 doc_id, bytes encrypted_doc
+		if err != nil {
+			//TODO handle errors
+		}
+		decryptDoc(cDoc)
+	}
+}
 func encryptQuery(s string) []byte {
 	var a []byte
 	return a
 }
 
-func decryptDocs(eDoc *pb.EncryptedDocInfo) *pb.DocInfo {
+func decryptDocInfo(eDoc *pb.EncryptedDocInfo) *pb.DocInfo {
 	return &pb.DocInfo{0}
 
+}
+
+func decryptDoc(eDoc *pb.CipherDoc) *document {
+	return &document{nil, 0}
 }

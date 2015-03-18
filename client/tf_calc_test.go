@@ -55,10 +55,7 @@ func TestShuffler(t *testing.T) {
 	a["golly"] = 3
 	tf := NewTermFrequencyCalculator(1, nil, nil, nil)
 	tf.initShufflers()
-	fmt.Printf("shufflers initialized\n")
 	tf.TermFreq <- a
-
-	fmt.Printf("reading shuffle values\n")
 	wg.Add(3)
 	go func() {
 		word := <-tf.reduceMap[Hash("hello")%tf.numReducers]

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"hash/fnv"
 	"sync"
 	"sync/atomic"
@@ -118,7 +117,6 @@ func (t *TermFrequencyCalculator) initShufflers() {
 		t.shufflerChan <- struct{}{}
 		go t.shuffler()
 	}
-	fmt.Printf("shufflers initialized\n")
 }
 
 func (t *TermFrequencyCalculator) waitForBloomFilter() {
@@ -160,7 +158,6 @@ out:
 				hashValue := Hash(key)
 				hashValue = hashValue % t.numReducers
 				t.reduceMap[hashValue] <- wordPair{key, val}
-				fmt.Println("key val sent: " + key)
 			}
 		}
 
@@ -192,9 +189,6 @@ out:
 			//TODO why am I doing this count?
 			if subSet[val.key] == 0 {
 				count++
-			}
-			if val.key == "golly" {
-				fmt.Printf("gosh golly what a cool input!\n")
 			}
 			subSet[val.key] += val.tf
 		case <-t.reducerQuit:

@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/binary"
-	"encoding/hex"
 	"hash"
 	"io"
 	"math/big"
@@ -15,41 +14,49 @@ import (
 
 	"github.com/roasbeef/DuckDuckXor/crypto"
 	pb "github.com/roasbeef/DuckDuckXor/protos"
-	"github.com/roasbeef/perm-crypt"
 	"golang.org/x/net/context"
 )
 
 // wordIndexCounter is a simple wrapper around a map to create a thread safe
 // multi-counter.
 type wordIndexCounter struct {
-	wordCounter map[string]uint32
+	wordCounter map[string]*indexDocPair
 	sync.Mutex
+}
+
+type indexDocPair struct {
+	count  uint32
+	lastId uint32
 }
 
 // NewWordIndexCounter creates and returns a new instance of the counter.
 func NewWordIndexCounter() *wordIndexCounter {
-	return &wordIndexCounter{wordCounter: make(map[string]uint32)}
+	return &wordIndexCounter{wordCounter: make(map[string]*indexDocPair)}
 }
 
 // readThenIncrement reads the current stored counter value for the given word,
 // then incrementing the counter before returning.
 // NOTE: the blinding counter is 1 behind the word-level doc index counter
-func (w *wordIndexCounter) readThenIncrement(term string) uint32 {
+func (w *wordIndexCounter) readThenIncrement(term string, docId uint32) uint32 {
 	w.Lock()
 	defer w.Unlock()
-	c, ok := w.wordCounter[term]
+
+	pair, ok := w.wordCounter[term]
 	if !ok {
-		w.wordCounter[term] = 0
-		c = 0
+		pair = &indexDocPair{count: 0, lastId: docId}
+		w.wordCounter[term] = pair
 	}
-	w.wordCounter[term]++
+
+	c := pair.count
+
+	pair.count++
+	pair.lastId = docId
+
 	return c
 }
 
 // xTag represents an xTag for a particular (word, docId) combination.
 // i.e: g^(xind * wtag). This value is passed around as a serialized ECC point.
-// TODO(roasbeef): Adding functions to this could make downstrema
-// changes easier more testable. Move for xset.go?
 type xTag []byte
 
 // EncryptedIndexGenerator is responsible for generating and storing the
@@ -67,6 +74,8 @@ type EncryptedIndexGenerator struct {
 
 	closeOnce     sync.Once
 	closeXtagChan func()
+
+	janitorWG sync.WaitGroup
 
 	keyMap map[KeyType]*[keySize]byte
 
@@ -91,11 +100,10 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 		bloom:             bloom,
 	}
 	var once sync.Once
-	onceBody := func() {
+	e.closeOnce = once
+	e.closeXtagChan = func() {
 		close(e.finishedXtags)
 	}
-	e.closeOnce = once
-	e.closeXtagChan = onceBody
 
 	return e, nil
 }
@@ -107,7 +115,7 @@ func (e *EncryptedIndexGenerator) Start() error {
 	}
 	// Set up chan splitter
 	e.wg.Add(1)
-	c1, c2 := e.chanSplitter(e.numWorkers * 2)
+	c1, c2 := e.chanSplitter()
 
 	for i := 0; i < e.numWorkers/2; i++ {
 		e.wg.Add(1)
@@ -116,8 +124,13 @@ func (e *EncryptedIndexGenerator) Start() error {
 
 	for i := 0; i < e.numWorkers/2; i++ {
 		e.wg.Add(1)
+		e.janitorWG.Add(1)
 		go e.tSetWorker(c2)
 	}
+
+	e.wg.Add(1)
+	go e.tSetJanitor()
+
 	return nil
 }
 
@@ -245,7 +258,6 @@ out:
 // unique word per document recieved. This entails computing the proper t-set
 // bucket and label for a tuple, it's blinding value for conjunctive queries,
 // and permuting the document ID, unique for each word.
-// TODO(roasbeef): Can multiple workers send on a stream????
 func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 	tSetStream, err := e.client.UploadTSet(context.Background())
 	if err != nil {
@@ -269,7 +281,6 @@ out:
 		select {
 		case index, more := <-workChan:
 			if !more {
-				// TODO(roasbeef): sync.Do.Once() ?
 				tSetStream.CloseSend()
 				break out
 			}
@@ -294,7 +305,7 @@ out:
 
 				// Our tuple inverted index tuple element is
 				// then (e, y)
-				tSetShard := calcTsetTuple(sTagPRF, word, docCounter, e, y)
+				tSetShard := calcTsetTuple(sTagPRF, word, docCounter, e, y, false)
 
 				if err := tSetStream.Send(tSetShard); err != nil {
 					// log.Fatalf("Failed to send a doc: %v", err)
@@ -310,6 +321,64 @@ out:
 			break out
 		}
 	}
+	e.janitorWG.Done()
+	e.wg.Done()
+}
+
+// tSetJanitor...
+func (e *EncryptedIndexGenerator) tSetJanitor() {
+	e.janitorWG.Wait()
+	tSetStream, err := e.client.UploadTSet(context.Background())
+	if err != nil {
+		// TODO(roasbeef): Handle err
+	}
+
+	xIndKey := e.keyMap[XIndKey]
+	xIndPRF := hmac.New(sha1.New, (*xIndKey)[:16])
+
+	blindKey := e.keyMap[DHBlindKey]
+	blindPRF := hmac.New(sha1.New, (*blindKey)[:16])
+
+	wTrapKey := e.keyMap[WTrapKey]
+	wTrapPRF := hmac.New(sha1.New, (*wTrapKey)[:16])
+
+	sTagKey := e.keyMap[STagKey]
+	sTagPRF := hmac.New(sha1.New, (*sTagKey)[:16])
+
+	// TODO(roasbeef): WAYY to redundant need to clean up.
+	for word, pair := range e.counter.wordCounter {
+		blindCounter := pair.count
+		docIndex := pair.count + 1
+		docId := pair.lastId
+
+		// z = F_p(K_z, w || c)
+		z := computeBlindingValue(blindPRF, word, blindCounter)
+
+		// xind = F_p(K_i, ind)
+		xind := computeXind(xIndPRF, docId)
+
+		// y = xind * z^-1
+		y := computeBlindedXind(z, xind, e.curve.Params().P)
+
+		// Permute the document ID using a format
+		// preserving encryption scheme.
+		e := crypto.PermuteDocId(word, wTrapPRF, docId)
+
+		// Our tuple inverted index tuple element is
+		// then (e, y)
+		tSetShard := calcTsetTuple(sTagPRF, word, docIndex, e, y, true)
+
+		if err := tSetStream.Send(tSetShard); err != nil {
+			// log.Fatalf("Failed to send a doc: %v", err)
+			// TODO(roasbeef): handle errs
+		}
+		wTrapPRF.Reset()
+		sTagPRF.Reset()
+		blindPRF.Reset()
+		xIndPRF.Reset()
+	}
+
+	tSetStream.CloseSend()
 	e.wg.Done()
 }
 
@@ -351,7 +420,7 @@ func computeBlindedXind(z, xind []byte, groupOrder *big.Int) []byte {
 
 // calcTsetTuple calculates indexing information for the a given word and tuple
 // data pair.
-func calcTsetTuple(sprf hash.Hash, word string, tupleIndex uint32, permutedId, blindedXind []byte) *pb.TSetFragment {
+func calcTsetTuple(sprf hash.Hash, word string, tupleIndex uint32, permutedId, blindedXind []byte, isLast bool) *pb.TSetFragment {
 	// stag = F(K_t, w)
 	sprf.Write([]byte(word))
 	sTag := sprf.Sum(nil)
@@ -360,11 +429,14 @@ func calcTsetTuple(sprf hash.Hash, word string, tupleIndex uint32, permutedId, b
 	// b, L, K = H(F(stag, index))
 	bucket, label, otp := crypto.CalcTsetVals(sTag, tupleIndex)
 
-	// TODO(roasbeef): Scheme to get exact bit.
 	// We actually write zero byte instead of bit here.
 	var tsetTuple bytes.Buffer
 	var tElement bytes.Buffer
-	tElement.Write([]byte{0})
+	if isLast {
+		tElement.Write([]byte{0x01})
+	} else {
+		tElement.Write([]byte{0x00})
+	}
 	tElement.Write(permutedId)
 	tElement.Write(blindedXind) // TODO(roasbeef): pad out?
 	tsetTuple.Write(crypto.XorBytes(tElement.Bytes(), otp[:]))

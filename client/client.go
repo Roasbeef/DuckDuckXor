@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
 	"flag"
 	"io"
 	"runtime"
@@ -29,6 +31,7 @@ func main() {
 
 type clientDaemon struct {
 	eDocs chan *pb.EncryptedDocInfo
+	keys  KeyManager
 }
 
 func (c *clientDaemon) search(query string) {
@@ -43,7 +46,7 @@ func (c *clientDaemon) requestSearch(query string) {
 	}
 	client := pb.NewEncryptedSearchClient(conn)
 	//TODO encrypt keyword before query
-	kQuery := &pb.KeywordQuery{encryptQuery(query)}
+	kQuery := &pb.KeywordQuery{c.encryptQuery(query)}
 	e, err := client.KeywordSearch(context.Background(), kQuery)
 	if err != nil {
 		//TODO handle error
@@ -71,7 +74,10 @@ func (c *clientDaemon) sendFetchRequests(client pb.EncryptedSearchClient) {
 	}
 	for {
 		select {
-		case doc := <-c.eDocs:
+		case doc, more := <-c.eDocs:
+			if !more {
+				break
+			}
 			err = fetch.Send(decryptDocInfo(doc))
 			if err != nil {
 				//TODO handle errors
@@ -90,15 +96,18 @@ func (c *clientDaemon) fetchDocuments(client pb.EncryptedSearchClient) {
 	}
 	for {
 		cDoc, err := fetch.Recv() //cipherDoc = uint32 doc_id, bytes encrypted_doc
+		//TODO are we recieving a continuous stream/ handling death?
 		if err != nil {
 			//TODO handle errors
 		}
 		decryptDoc(cDoc)
 	}
 }
-func encryptQuery(s string) []byte {
-	var a []byte
-	return a
+func (c *clientDaemon) encryptQuery(s string) []byte {
+	stag := c.keys.FetchSTagKey()
+	hm := hmac.New(sha1.New, stag[:16])
+	hm.Write([]byte(s))
+	return hm.Sum(nil)
 }
 
 func decryptDocInfo(eDoc *pb.EncryptedDocInfo) *pb.DocInfo {

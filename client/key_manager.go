@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"crypto/sha512"
 	"fmt"
 	"sync"
@@ -24,20 +23,18 @@ const (
 	PermuteTweak
 )
 const (
-	numKeys   = 6
-	keySize   = 32
-	tweakSize = 32 // Typically truncated to 4 bytes.
+	numKeys = 6
+	keySize = 32
 )
 
 // A helper map to quickly identify the db key for a particular crypto key.
 var keyToBoltKey = map[KeyType][]byte{
-	WTrapKey:     []byte("k_s"), // Truncated to 16 bytes.
-	XTagKey:      []byte("k_x"), // Truncated to 16 bytes.
-	XIndKey:      []byte("k_i"), // Truncated to 16 bytes.
-	DHBlindKey:   []byte("k_z"), // Truncated to 16 bytes.
-	STagKey:      []byte("k_t"),
-	DocEncKey:    []byte("doc_key"),
-	PermuteTweak: []byte("tweak"),
+	WTrapKey:   []byte("k_s"), // Truncated to 16 bytes.
+	XTagKey:    []byte("k_x"), // Truncated to 16 bytes.
+	XIndKey:    []byte("k_i"), // Truncated to 16 bytes.
+	DHBlindKey: []byte("k_z"), // Truncated to 16 bytes.
+	STagKey:    []byte("k_t"),
+	DocEncKey:  []byte("doc_key"),
 }
 var cryptoKeyBucket = []byte("cryptoKeys")
 
@@ -173,13 +170,6 @@ func (k *KeyManager) performInitialSetup(passphrase []byte) error {
 
 	serializedMasterKey := masterKey.Marshal()
 
-	// Generate a random tweak for use with AES-FFX.
-	var permuteTweak [tweakSize]byte
-	_, err = rand.Read(permuteTweak[:])
-	if err != nil {
-		return err
-	}
-
 	// Commit the encrypted keys to the DB.
 	err = k.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucket(cryptoKeyBucket)
@@ -196,11 +186,6 @@ func (k *KeyManager) performInitialSetup(passphrase []byte) error {
 			return err
 		}
 
-		// Store our tweak.
-		if err = b.Put(keyToBoltKey[PermuteTweak], permuteTweak[:]); err != nil {
-			return nil
-		}
-
 		return nil
 	})
 	if err != nil {
@@ -209,9 +194,9 @@ func (k *KeyManager) performInitialSetup(passphrase []byte) error {
 
 	// zero out the master key, we don't need it anymore.
 	masterKey.Zero()
+
 	// Finally create our map, then we're all ready to go
 	k.updateKeyMap(childKeys)
-	k.keyMap[PermuteTweak] = permuteTweak
 
 	return nil
 }
@@ -238,12 +223,6 @@ func (k *KeyManager) loadDBKeys(b *bolt.Bucket, masterKey *snacl.SecretKey) erro
 		copy(a[:], decryptedKey)
 		k.keyMap[targetKey] = a
 	}
-
-	// Recover our permutation tweak value.
-	tweak := b.Get(keyToBoltKey[PermuteTweak])
-	var c [keySize]byte
-	copy(c[:], tweak)
-	k.keyMap[PermuteTweak] = c
 
 	return nil
 }

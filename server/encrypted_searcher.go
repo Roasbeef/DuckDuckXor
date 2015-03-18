@@ -212,6 +212,7 @@ out:
 			targetLabel := tFragment.t.Label
 			tupleData := tFragment.t.Data
 
+			// TODO(roasbeef): Need to catch tset collision with prob 2^-32
 			err := e.db.Update(func(tx *bolt.Tx) error {
 				// Fetch the root t-set bucket.
 				rootBucket, err := tx.CreateBucketIfNotExists(tSetBucketKey)

@@ -140,7 +140,6 @@ func main() {
 	defer db.Close()
 
 	// Initialize components for the server.
-	grpcServer := grpc.NewServer()
 	docDb, err := NewDocumentDatabase(db)
 	if err != nil {
 		log.Fatalf("unable to create document database: %v", err)
@@ -151,6 +150,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("unable to load search index: %v", err)
 	}
+	index.Start()
 
 	eServer, err := newEncryptedSearchServer(docDb, index)
 	if err != nil {
@@ -158,6 +158,7 @@ func main() {
 	}
 
 	// Register our implemented server interface
+	grpcServer := grpc.NewServer()
 	pb.RegisterEncryptedSearchServer(grpcServer, eServer)
 
 	// Optionally activate TLS.

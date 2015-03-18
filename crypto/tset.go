@@ -1,10 +1,15 @@
 package crypto
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/sha512"
 	"encoding/binary"
+	"encoding/hex"
+	"hash"
+
+	"github.com/roasbeef/perm-crypt"
 )
 
 // CalcTsetVals given an stag and document index, returns a triple containing
@@ -42,4 +47,65 @@ func XorBytes(x, y []byte) []byte {
 		out[i] = x[i] ^ y[i]
 	}
 	return out
+}
+
+// permuteDocId computes the keyed permutation for the given document ID unique
+// to each word. The keyed permutation is actually an encryption using AES-FFX
+// a format preserving encryption scheme based on AES and a feisel network.
+// The key for the AES-FFX scheme is derived from the word, making each
+// encrypted document unique to each distinct word.
+func PermuteDocId(word string, wPrf hash.Hash, docId uint32) []byte {
+	// K_e = F(k_s, w)
+	wPrf.Write([]byte(word))
+	wordPermKey := wPrf.Sum(nil)
+
+	wordPerm, err := aesffx.NewCipher(16, wordPermKey, nil)
+	if err != nil {
+		// TODO(roasbeef): handle err
+	}
+
+	// e = Enc(Ke, ind)
+	var xindBuf bytes.Buffer
+	binary.Write(&xindBuf, binary.BigEndian, docId)
+	xindString := hex.EncodeToString(xindBuf.Bytes())
+	permutedId, err := wordPerm.Encrypt(xindString)
+	if err != nil {
+		// TODO(roasbeef): handle err
+	}
+
+	permutedBytes, err := hex.DecodeString(permutedId)
+	if err != nil {
+		// TODO(roasbeef): handle err
+	}
+	return permutedBytes
+}
+
+// UnpermuteDocId computes the keyed inverse-permutation for the given document
+// ID unique to each word. The keyed permutation is actually an encryption
+// using AES-FFX a format preserving encryption scheme based on AES and a
+// feisel network. The key for the AES-FFX scheme is derived from the word,
+// making each encrypted document unique to each distinct word.
+func UnpermuteDocId(word string, wPrf hash.Hash, docId []byte) ([]byte, error) {
+	// K_e = F(k_s, w)
+	wPrf.Write([]byte(word))
+	wordPermKey := wPrf.Sum(nil)
+
+	wordPerm, err := aesffx.NewCipher(16, wordPermKey, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// e = Enc(Ke, ind)
+	xindString := hex.EncodeToString(docId)
+	permutedId, err := wordPerm.Decrypt(xindString)
+	if err != nil {
+		return nil, err
+	}
+
+	permutedBytes, err := hex.DecodeString(permutedId)
+	if err != nil {
+		return nil, err
+	}
+
+	return permutedBytes, nil
 }

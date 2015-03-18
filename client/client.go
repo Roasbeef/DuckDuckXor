@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"io"
 	"runtime"
 
 	pb "github.com/roasbeef/DuckDuckXor/protos"
@@ -18,6 +19,7 @@ var (
 )
 
 func init() {
+
 }
 
 func main() {
@@ -26,9 +28,14 @@ func main() {
 }
 
 type clientDaemon struct {
+	eDocs chan *pb.EncryptedDocInfo
 }
 
-func (c *clientDaemon) requestSearch(qstream pb.EncryptedSearch_UploadTSetServer, query string) {
+func (c *clientDaemon) search(query string) {
+	c.requestSearch(query)
+
+}
+func (c *clientDaemon) requestSearch(query string) {
 	conn, err := grpc.Dial(*serverAddr)
 	if err != nil {
 		//TODO handle error
@@ -42,15 +49,28 @@ func (c *clientDaemon) requestSearch(qstream pb.EncryptedSearch_UploadTSetServer
 		//TODO handle error
 
 	}
-	docs, err := e.Recv()
-	if err != nil {
-		//TODO handle error
+	c.recieveDocuments(e)
+}
+
+func (c *clientDaemon) recieveDocuments(stream pb.EncryptedSearch_KeywordSearchClient) {
+	for {
+		doc, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		c.eDocs <- doc
 	}
+
+}
+
+func (c *clientDaemon) fetchDocuments(client pb.EncryptedSearchClient) {
+
 	fetch, err := client.FetchDocuments(context.Background())
+	doc := <-c.eDocs
+	fetch.Send(decryptDocs(doc))
 	if err != nil {
 		//TODO handle errors
 	}
-	fetch.Send(decryptDocs(docs))
 }
 
 func encryptQuery(s string) []byte {

@@ -32,9 +32,7 @@ type TermFrequencyCalculator struct {
 	started            int32
 	shutDown           int32
 	err                chan error
-	mappersDone        chan struct{}
-	shufflersDone      chan struct{}
-	shufflerQuit       chan struct{}
+	shufflerChan       chan struct{}
 	reducerQuit        chan struct{}
 	ltHunredbucketSize uint
 	ltOneKbucketSize   uint
@@ -42,6 +40,8 @@ type TermFrequencyCalculator struct {
 	abort              func(chan struct{}, error)
 	numReducers        uint32
 	sync.Mutex
+	mapperOnce           sync.Once
+	shufflerOnce         sync.Once
 	ltHundredKBucketSize uint
 	bloomFilterManager   *bloomMaster
 }
@@ -65,9 +65,7 @@ func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMas
 		bloomInitChan:      make(chan int),
 		TermFreq:           make(chan map[string]int),
 		numReducers:        numReducers,
-		mappersDone:        make(chan struct{}, numWorkers),
-		shufflersDone:      make(chan struct{}, numReducers),
-		shufflerQuit:       make(chan struct{}),
+		shufflerChan:       make(chan struct{}, numReducers),
 		reducerQuit:        make(chan struct{}),
 		docIn:              d,
 		abort:              abort,
@@ -103,7 +101,6 @@ func (t *TermFrequencyCalculator) Stop() error {
 func (t *TermFrequencyCalculator) initMappers() {
 	for i := uint32(0); i < t.numWorkers; i++ {
 		t.wg.Add(1)
-		t.mappersDone <- struct{}{}
 		go t.frequencyWorker()
 	}
 }
@@ -118,7 +115,7 @@ func (t *TermFrequencyCalculator) initReducers() {
 func (t *TermFrequencyCalculator) initShufflers() {
 	for i := uint32(0); i < t.numReducers; i++ {
 		t.wg.Add(1)
-		t.shufflersDone <- struct{}{}
+		t.shufflerChan <- struct{}{}
 		go t.shuffler()
 	}
 	fmt.Printf("shufflers initialized\n")
@@ -145,10 +142,7 @@ out:
 			t.TermFreq <- m
 		}
 	}
-	<-t.mappersDone
-	if len(t.mappersDone) == 0 {
-		close(t.shufflerQuit)
-	}
+	t.mapperOnce.Do(func() { close(t.TermFreq) })
 	t.wg.Done()
 }
 
@@ -158,20 +152,22 @@ out:
 		select {
 		case <-t.quit:
 			break out
-		case doc := <-t.TermFreq:
+		case doc, more := <-t.TermFreq:
+			if !more {
+				break out
+			}
 			for key, val := range doc {
 				hashValue := Hash(key)
 				hashValue = hashValue % t.numReducers
 				t.reduceMap[hashValue] <- wordPair{key, val}
+				fmt.Println("key val sent: " + key)
 			}
-		case <-t.shufflerQuit:
-			break out
 		}
 
 	}
-	<-t.shufflersDone
-	if len(t.shufflersDone) == 0 {
-		close(t.reducerQuit)
+	<-t.shufflerChan
+	if len(t.shufflerChan) == 0 {
+		t.shufflerOnce.Do(func() { close(t.reducerQuit) })
 	}
 	t.wg.Done()
 }

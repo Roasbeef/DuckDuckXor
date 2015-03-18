@@ -1,6 +1,9 @@
 package main
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type TSetUpdateMessage struct {
 	docID int32
@@ -13,6 +16,7 @@ type InvertedIndexCalculator struct {
 	finalIndexEntries   chan map[string]uint32
 	finalCounterEntries chan int
 	TsetIndex           map[string]int
+	reduceMap           map[uint32]chan wordPair
 	mostRecentDoc       map[string]int
 	ResultCount         int
 	docIn               chan *InvIndexDocument
@@ -20,6 +24,7 @@ type InvertedIndexCalculator struct {
 	started             int32
 	numWorkers          uint32
 	numReducers         uint32
+	beta_indeces        chan wordPair
 	mappersDone         chan struct{}
 	shufflersDone       chan struct{}
 	shufflerQuit        chan struct{}
@@ -30,16 +35,22 @@ type InvertedIndexCalculator struct {
 
 func (i *InvertedIndexCalculator) NewInvertedIndexCalculator(docs chan *InvIndexDocument, numWorkers uint32, numReducers uint32, abort func(chan struct{}, error)) InvertedIndexCalculator {
 	q := make(chan struct{})
-
+	r := make(map[uint32]chan wordPair)
+	var j uint32
+	for j = 0; j < 26; j++ {
+		r[j] = make(chan wordPair)
+	}
 	finalIndexEntries := make(chan map[string]uint32, numWorkers)
 	return InvertedIndexCalculator{quit: q,
 		finalIndexEntries: finalIndexEntries,
 		docIn:             docs,
+		reduceMap:         r,
 		mappersDone:       make(chan struct{}, numWorkers),
 		shufflersDone:     make(chan struct{}, numReducers),
 		shufflerQuit:      make(chan struct{}),
 		reducerQuit:       make(chan struct{}),
 		abort:             abort,
+		beta_indeces:      make(chan wordPair),
 		numWorkers:        numWorkers,
 		numReducers:       numReducers,
 	}
@@ -91,6 +102,10 @@ out:
 	}
 	i.finalCounterEntries <- counter
 	i.finalIndexEntries <- lastTermInDocument
+	<-i.mappersDone
+	if len(i.mappersDone) == 0 {
+		close(i.shufflerQuit)
+	}
 	i.wg.Done()
 }
 
@@ -103,9 +118,53 @@ func maxInt(a uint32, b uint32) uint32 {
 }
 
 func (i *InvertedIndexCalculator) finalIndexShuffler() {
-
+out:
+	for {
+		select {
+		case <-i.quit:
+			break out
+		case a := <-i.finalIndexEntries:
+			for key, val := range a {
+				hashValue := Hash(key)
+				hashValue = hashValue % i.numReducers
+				i.reduceMap[hashValue] <- wordPair{key, int(val)}
+			}
+		case <-i.shufflerQuit:
+			break out
+		}
+	}
+	<-i.shufflersDone
+	if len(i.shufflersDone) == 0 {
+		close(i.reducerQuit)
+	}
+	i.wg.Done()
 }
 
 func (i *InvertedIndexCalculator) reducer(key uint32) {
+
+	count := 0
+	input := i.reduceMap[key]
+	subSet := make(map[string]int)
+out:
+	for {
+		select {
+		case <-i.quit:
+			break out
+		case val := <-input:
+			//TODO why am I doing this count?
+			if subSet[val.key] == 0 {
+				count++
+			}
+			if val.key == "golly" {
+				fmt.Printf("gosh golly what a cool input!\n")
+			}
+
+			//TODO:I realize that this is HORRIBLE. I am keeping this here until after yang
+			//functionally it will work, but this wont stay here
+			subSet[val.key] = int(maxInt(uint32(subSet[val.key]), uint32(val.tf)))
+		case <-i.reducerQuit:
+			break out
+		}
+	}
 
 }

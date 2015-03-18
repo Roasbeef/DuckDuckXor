@@ -42,6 +42,7 @@ type TermFrequencyCalculator struct {
 	abort              func(chan struct{}, error)
 	numReducers        uint32
 	sync.Mutex
+	once                 sync.Once
 	ltHundredKBucketSize uint
 	bloomFilterManager   *bloomMaster
 }
@@ -147,7 +148,7 @@ out:
 	}
 	<-t.mappersDone
 	if len(t.mappersDone) == 0 {
-		close(t.shufflerQuit)
+		t.once.Do(func() { close(t.shufflerQuit) })
 	}
 	t.wg.Done()
 }
@@ -171,7 +172,7 @@ out:
 	}
 	<-t.shufflersDone
 	if len(t.shufflersDone) == 0 {
-		close(t.reducerQuit)
+		t.once.Do(func() { close(t.reducerQuit) })
 	}
 	t.wg.Done()
 }

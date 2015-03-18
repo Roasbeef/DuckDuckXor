@@ -151,6 +151,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("unable to load search index: %v", err)
 	}
+	index.Start()
 
 	eServer, err := newEncryptedSearchServer(docDb, index)
 	if err != nil {

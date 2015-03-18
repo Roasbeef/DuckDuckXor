@@ -264,9 +264,6 @@ func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 
 	sTagKey := e.keyMap[STagKey]
 	sTagPRF := hmac.New(sha1.New, (*sTagKey)[:16])
-
-	// TODO(roasbeef): take out tweak? or add to hash-tree derivation.
-	tweakVal := e.keyMap[PermuteTweak]
 out:
 	for {
 		select {
@@ -278,7 +275,7 @@ out:
 			}
 
 			for word, _ := range index.Words {
-				blindCounter := e.counter.readThenIncrement(word)
+				blindCounter := e.counter.readThenIncrement(word, index.DocId)
 				docCounter := blindCounter + 1
 
 				// TODO(roasbeef): Buffer re-use??
@@ -294,7 +291,7 @@ out:
 
 				// Permute the document ID using a format
 				// preserving encryption scheme.
-				e := permuteDocId(word, wTrapPRF, tweakVal[:4], index.DocId)
+				e := crypto.PermuteDocId(word, wTrapPRF, index.DocId)
 
 				// Our tuple inverted index tuple element is
 				// then (e, y)

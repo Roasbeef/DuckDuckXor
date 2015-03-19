@@ -109,7 +109,9 @@ func (c *clientDaemon) fetchDocuments(client pb.EncryptedSearchClient) {
 		}
 		b := c.decryptDoc(cDoc)
 		p := pb.PlainDoc{cDoc.DocId, b}
+		if p.DocBytes != nil {
 
+		}
 	}
 }
 func (c *clientDaemon) encryptQuery(s string) []byte {

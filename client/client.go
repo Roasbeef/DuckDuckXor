@@ -36,9 +36,10 @@ type plainDoc struct {
 }
 
 type clientDaemon struct {
-	eDocs  chan *pb.EncryptedDocInfo
-	keys   KeyManager
-	docKey snacl.CryptoKey
+	eDocs     chan *pb.EncryptedDocInfo
+	keys      KeyManager
+	docKey    snacl.CryptoKey
+	plainDocs chan plainDoc
 }
 
 func (c *clientDaemon) search(query string) {
@@ -96,7 +97,6 @@ func (c *clientDaemon) sendFetchRequests(client pb.EncryptedSearchClient) {
 }
 
 func (c *clientDaemon) fetchDocuments(client pb.EncryptedSearchClient) {
-
 	fetch, err := client.FetchDocuments(context.Background())
 	if err != nil {
 		//TODO handle errors
@@ -108,12 +108,10 @@ func (c *clientDaemon) fetchDocuments(client pb.EncryptedSearchClient) {
 			//TODO handle errors
 		}
 		b := c.decryptDoc(cDoc)
-		p := pb.PlainDoc{cDoc.DocId, b}
-		if p.DocBytes != nil {
-
-		}
+		c.plainDocs <- plainDoc{b, cDoc.DocId}
 	}
 }
+
 func (c *clientDaemon) encryptQuery(s string) []byte {
 	stag := c.keys.FetchSTagKey()
 	hm := hmac.New(sha1.New, stag[:16])

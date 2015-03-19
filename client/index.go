@@ -28,7 +28,7 @@ func (i *indexer) Index(homeIndex string, db *bolt.DB, numWorkers int) (*bloomMa
 	eHandler.stopChan <- cReader.Stop
 	preProcessor := NewDocPreprocessor(cReader.DocOut, eHandler.createAbortFunc())
 	eHandler.stopChan <- preProcessor.Stop
-	//TODO set up boltdb and make numWorkers a config
+	//TODO every one of these classes should take in the main wg as a parameter
 	bloomMaster, err := newBloomMaster(nil, numWorkers)
 	if err != nil {
 		//TODO handle error
@@ -37,13 +37,14 @@ func (i *indexer) Index(homeIndex string, db *bolt.DB, numWorkers int) (*bloomMa
 	if err != nil {
 		//TODO handle error
 	}
-	//TODO make numWorkers a config
 	tfCalc := NewTermFrequencyCalculator(uint32(numWorkers), preProcessor.TfOut, bloomMaster, eHandler.createAbortFunc())
 	eHandler.stopChan <- tfCalc.Stop
-	cReader.Start()
-	preProcessor.Start()
-	bloomMaster.Start()
-	tfCalc.Start()
+
+	go cReader.Start()
+	go preProcessor.Start()
+	go bloomMaster.Start()
+	go keyManager.Start()
+	go tfCalc.Start()
 
 	i.mainWg.Wait()
 	return bloomMaster, keyManager, i.docNames
@@ -59,4 +60,14 @@ func (i *indexer) gatherDocumentNames(dChan chan Doc) {
 			i.docNames[doc.DocId] = doc.Name
 		}
 	}
+}
+
+func AddToWg(local sync.WaitGroup, main *sync.WaitGroup, val int) {
+	local.Add(val)
+	main.Add(val)
+}
+
+func WgDone(local sync.WaitGroup, main *sync.WaitGroup) {
+	local.Done()
+	main.Done()
 }

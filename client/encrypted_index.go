@@ -74,8 +74,8 @@ type EncryptedIndexGenerator struct {
 
 	closeOnce     sync.Once
 	closeXtagChan func()
-
-	janitorWG sync.WaitGroup
+	mainWg        *sync.WaitGroup
+	janitorWG     sync.WaitGroup
 
 	keyMap map[KeyType]*[keySize]byte
 
@@ -87,7 +87,7 @@ type EncryptedIndexGenerator struct {
 
 // NewEncryptedIndexGenerator creates and returns a new instance of the
 // EncryptedIndexGenerator.
-func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType]*[keySize]byte, bloom *bloomMaster) (*EncryptedIndexGenerator, error) {
+func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType]*[keySize]byte, bloom *bloomMaster, mainWg *sync.WaitGroup) (*EncryptedIndexGenerator, error) {
 	e := &EncryptedIndexGenerator{
 		quit:    make(chan struct{}),
 		counter: NewWordIndexCounter(),
@@ -98,6 +98,7 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 		curve:             elliptic.P224(),
 		numWorkers:        numWorkers,
 		bloom:             bloom,
+		mainWg:            mainWg,
 	}
 	var once sync.Once
 	e.closeOnce = once
@@ -114,21 +115,21 @@ func (e *EncryptedIndexGenerator) Start() error {
 		return nil
 	}
 	// Set up chan splitter
-	e.wg.Add(1)
+	AddToWg(e.wg, e.mainWg, 1)
 	c1, c2 := e.chanSplitter()
 
 	for i := 0; i < e.numWorkers/2; i++ {
-		e.wg.Add(1)
+		AddToWg(e.wg, e.mainWg, 1)
 		go e.xSetWorker(c1)
 	}
 
 	for i := 0; i < e.numWorkers/2; i++ {
-		e.wg.Add(1)
-		e.janitorWG.Add(1)
+		AddToWg(e.wg, e.mainWg, 1)
+		AddToWg(e.janitorWG, e.mainWg, 1)
 		go e.tSetWorker(c2)
 	}
 
-	e.wg.Add(1)
+	AddToWg(e.wg, e.mainWg, 1)
 	go e.tSetJanitor()
 
 	return nil
@@ -165,7 +166,7 @@ func (e *EncryptedIndexGenerator) chanSplitter() (chan *InvIndexDocument, chan *
 		}
 		close(xSetChan)
 		close(tSetChan)
-		e.wg.Done()
+		WgDone(e.wg, e.mainWg)
 	}()
 
 	return xSetChan, tSetChan
@@ -230,7 +231,7 @@ out:
 	// Signal the streamer that there aren't any more xTags, but do this
 	// AT MOST once.
 	e.closeOnce.Do(e.closeXtagChan)
-	e.wg.Done()
+	WgDone(e.wg, e.mainWg)
 }
 
 // bloomStreamer is responsible for sending computed xTags off to the
@@ -251,7 +252,7 @@ out:
 			break out
 		}
 	}
-	e.wg.Done()
+	WgDone(e.wg, e.mainWg)
 }
 
 // tSetWorker is responsible computing and sending off t-set tuples for each
@@ -322,7 +323,7 @@ out:
 		}
 	}
 	e.janitorWG.Done()
-	e.wg.Done()
+	WgDone(e.wg, e.mainWg)
 }
 
 // tSetJanitor...
@@ -379,7 +380,7 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 	}
 
 	tSetStream.CloseSend()
-	e.wg.Done()
+	WgDone(e.wg, e.mainWg)
 }
 
 // computeBlindingValue computes the blinding value used for blinded

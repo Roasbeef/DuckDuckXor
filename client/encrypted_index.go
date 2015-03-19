@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/elliptic"
-	"crypto/hmac"
-	"crypto/sha1"
 	"encoding/binary"
 	"hash"
 	"io"
@@ -12,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/jacobsa/crypto/cmac"
 	"github.com/roasbeef/DuckDuckXor/crypto"
 	pb "github.com/roasbeef/DuckDuckXor/protos"
 	"golang.org/x/net/context"
@@ -176,11 +175,11 @@ func (e *EncryptedIndexGenerator) chanSplitter() (chan *InvIndexDocument, chan *
 // off downstream to be added to the final xSet bloom filter.
 func (e *EncryptedIndexGenerator) xSetWorker(workChan chan *InvIndexDocument) {
 	xIndKey := e.keyMap[XIndKey]
-	xIndPRF := hmac.New(sha1.New, (*xIndKey)[:16]) // TODO(roasbeef): extract slice
+	xIndPRF, _ := cmac.New(xIndKey[:])
 
 	// TODO(roasbeef): re-name everywhere, not xtag itself but half of it (wtag?)
 	xTagKey := e.keyMap[XTagKey]
-	xTagPRF := hmac.New(sha1.New, (*xTagKey)[:16])
+	xTagPRF, _ := cmac.New(xTagKey[:])
 
 	indBytes := make([]byte, 16)
 	indBuf := bytes.NewBuffer(indBytes)
@@ -266,16 +265,16 @@ func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 
 	// TODO(roasbeef): Cache these values amongst workers?
 	xIndKey := e.keyMap[XIndKey]
-	xIndPRF := hmac.New(sha1.New, (*xIndKey)[:16])
+	xIndPRF, _ := cmac.New(xIndKey[:])
 
 	blindKey := e.keyMap[DHBlindKey]
-	blindPRF := hmac.New(sha1.New, (*blindKey)[:16])
+	blindPRF, _ := cmac.New(blindKey[:])
 
 	wTrapKey := e.keyMap[WTrapKey]
-	wTrapPRF := hmac.New(sha1.New, (*wTrapKey)[:16])
+	wTrapPRF, _ := cmac.New(wTrapKey[:])
 
 	sTagKey := e.keyMap[STagKey]
-	sTagPRF := hmac.New(sha1.New, (*sTagKey)[:16])
+	sTagPRF, _ := cmac.New(sTagKey[:])
 out:
 	for {
 		select {
@@ -334,16 +333,16 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 	}
 
 	xIndKey := e.keyMap[XIndKey]
-	xIndPRF := hmac.New(sha1.New, (*xIndKey)[:16])
+	xIndPRF, _ := cmac.New(xIndKey[:])
 
 	blindKey := e.keyMap[DHBlindKey]
-	blindPRF := hmac.New(sha1.New, (*blindKey)[:16])
+	blindPRF, _ := cmac.New(blindKey[:])
 
 	wTrapKey := e.keyMap[WTrapKey]
-	wTrapPRF := hmac.New(sha1.New, (*wTrapKey)[:16])
+	wTrapPRF, _ := cmac.New(wTrapKey[:])
 
 	sTagKey := e.keyMap[STagKey]
-	sTagPRF := hmac.New(sha1.New, (*sTagKey)[:16])
+	sTagPRF, _ := cmac.New(sTagKey[:])
 
 	// TODO(roasbeef): WAYY to redundant need to clean up.
 	for word, pair := range e.counter.wordCounter {

@@ -1,21 +1,20 @@
 package crypto
 
 import (
-	"bytes"
-	"crypto/hmac"
-	"crypto/sha1"
 	"crypto/sha512"
 	"encoding/binary"
 	"encoding/hex"
 	"hash"
 
+	"github.com/jacobsa/crypto/cmac"
 	"github.com/roasbeef/perm-crypt"
 )
 
 // CalcTsetVals given an stag and document index, returns a triple containing
 // the information required to look up, and decrypt document data from the t-set.
 func CalcTsetVals(stag []byte, index uint32) ([1]byte, [16]byte, [37]byte) {
-	prf := hmac.New(sha1.New, stag)
+	// F(stag, index)
+	prf, _ := cmac.New(stag)
 	binary.Write(prf, binary.BigEndian, index)
 	m := prf.Sum(nil)
 

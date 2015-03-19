@@ -29,10 +29,10 @@ const (
 
 // A helper map to quickly identify the db key for a particular crypto key.
 var keyToBoltKey = map[KeyType][]byte{
-	WTrapKey:   []byte("k_s"), // Truncated to 16 bytes.
-	XTagKey:    []byte("k_x"), // Truncated to 16 bytes.
-	XIndKey:    []byte("k_i"), // Truncated to 16 bytes.
-	DHBlindKey: []byte("k_z"), // Truncated to 16 bytes.
+	WTrapKey:   []byte("k_s"),
+	XTagKey:    []byte("k_x"),
+	XIndKey:    []byte("k_i"),
+	DHBlindKey: []byte("k_z"),
 	STagKey:    []byte("k_t"),
 	DocEncKey:  []byte("doc_key"),
 }

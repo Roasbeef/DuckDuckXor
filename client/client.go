@@ -39,6 +39,7 @@ type clientDaemon struct {
 	eDocs     chan *pb.EncryptedDocInfo
 	keys      KeyManager
 	docKey    snacl.CryptoKey
+	docNames  map[uint32]string
 	plainDocs chan plainDoc
 }
 
@@ -46,6 +47,18 @@ func (c *clientDaemon) search(query string) {
 	c.requestSearch(query)
 
 }
+
+func (c *clientDaemon) index(root string) {
+	i := NewIndexer()
+	i.Index(root)
+	go func(i *indexer) {
+
+		c.docNames = <-i.nameChannel
+
+	}(i)
+
+}
+
 func (c *clientDaemon) requestSearch(query string) {
 	conn, err := grpc.Dial(*serverAddr)
 	if err != nil {

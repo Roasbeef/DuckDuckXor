@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"runtime"
@@ -22,26 +23,40 @@ var (
 
 	documentDirectory = flag.String("doc_dir", ".", "Directory where documents to be indexed live")
 
-	doIndex = flag.String("index", "false", "perform indexing if true")
+	doIndex    = flag.Bool("index", false, "perform indexing if true")
+	passPhrase = flag.String("passPhrase", "", "password needed to access keys")
 )
 
 func init() {
+	//c := NewCLI()
+	//c.Start()
 }
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	//read config file
-	db, err := bolt.Open("my.db", 0600, nil)
+	db, err := bolt.Open("~/.DuckDuckXor/ddx.db", 0600, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
-
-	c := NewClientDaemon(db)
-	if *doIndex == "true" {
-		c.Index(*documentDirectory)
+	fmt.Println("ok, we're starting for real")
+	var key *KeyManager
+	var bloom *bloomMaster
+	if *doIndex == true {
+		bloom, key = Index(*documentDirectory, db)
+	} else {
+		key, err = NewKeyManager(db, []byte(*passPhrase))
+		if err != nil {
+			log.Fatal(err)
+		}
+		bloom, err = newBloomMaster(db, 0)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
+	c := NewClientDaemon(db, key, bloom)
 	awaitCommands(c)
 }
 
@@ -59,21 +74,27 @@ type plainDoc struct {
 type clientDaemon struct {
 	eDocs     chan *pb.EncryptedDocInfo
 	keys      *KeyManager
+	bm        *bloomMaster
 	docKey    snacl.CryptoKey
 	docNames  map[uint32]string
 	plainDocs chan plainDoc
+	client    pb.EncryptedSearchClient
 }
 
-func NewClientDaemon(db *bolt.DB) *clientDaemon {
-	key, err := NewKeyManager(db, nil)
+func NewClientDaemon(db *bolt.DB, k *KeyManager, b *bloomMaster) *clientDaemon {
+	conn, err := grpc.Dial(*serverAddr)
 	if err != nil {
+		//TODO handle error
 
 	}
+	client := pb.NewEncryptedSearchClient(conn)
 	return &clientDaemon{
 		eDocs:     make(chan *pb.EncryptedDocInfo),
-		keys:      key,
+		keys:      k,
+		bm:        b,
 		docNames:  make(map[uint32]string),
 		plainDocs: make(chan plainDoc),
+		client:    client,
 	}
 }
 
@@ -82,27 +103,20 @@ func (c *clientDaemon) search(query string) {
 
 }
 
-func (c *clientDaemon) Index(root string) {
+func Index(root string, db *bolt.DB) (*bloomMaster, *KeyManager) {
+
 	i := NewIndexer()
-	i.Index(root)
-	go func(i *indexer) {
-
-		c.docNames = <-i.nameChannel
-
-	}(i)
+	//	go func(i *indexer) {
+	//		c.docNames = <-i.nameChannel
+	//	}(i)
+	return i.Index(root, db)
 
 }
 
 func (c *clientDaemon) requestSearch(query string) {
-	conn, err := grpc.Dial(*serverAddr)
-	if err != nil {
-		//TODO handle error
-
-	}
-	client := pb.NewEncryptedSearchClient(conn)
 	//TODO encrypt keyword before query
 	kQuery := &pb.KeywordQuery{c.encryptQuery(query)}
-	e, err := client.KeywordSearch(context.Background(), kQuery)
+	e, err := c.client.KeywordSearch(context.Background(), kQuery)
 	if err != nil {
 		//TODO handle error
 

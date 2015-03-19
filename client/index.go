@@ -1,10 +1,17 @@
 package main
 
+import (
+	"sync"
+
+	"github.com/boltdb/bolt"
+)
+
 //index should handle high level indexing
 
 type indexer struct {
 	docNames    map[uint32]string
 	nameChannel chan map[uint32]string
+	mainWg      sync.WaitGroup
 }
 
 func NewIndexer() *indexer {
@@ -16,7 +23,7 @@ func NewIndexer() *indexer {
 	}
 }
 
-func (i *indexer) Index(homeIndex string) {
+func (i *indexer) Index(homeIndex string, db *bolt.DB) (*bloomMaster, *KeyManager) {
 	eHandler := NewErrorHandler()
 	cReader := NewCorpusReader(homeIndex, eHandler.createAbortFunc())
 	eHandler.stopChan <- cReader.Stop
@@ -27,6 +34,10 @@ func (i *indexer) Index(homeIndex string) {
 	if err != nil {
 		//TODO handle error
 	}
+	keyManager, err := NewKeyManager(db, nil)
+	if err != nil {
+		//TODO handle error
+	}
 	//TODO make numWorkers a config
 	tfCalc := NewTermFrequencyCalculator(100, preProcessor.TfOut, bloomMaster, eHandler.createAbortFunc())
 	eHandler.stopChan <- tfCalc.Stop
@@ -34,6 +45,9 @@ func (i *indexer) Index(homeIndex string) {
 	preProcessor.Start()
 	bloomMaster.Start()
 	tfCalc.Start()
+
+	i.mainWg.Wait()
+	return bloomMaster, keyManager
 }
 
 func (i *indexer) gatherDocumentNames(dChan chan Doc) {

@@ -5,8 +5,10 @@ import (
 	"crypto/sha1"
 	"flag"
 	"io"
+	"log"
 	"runtime"
 
+	"github.com/boltdb/bolt"
 	"github.com/conformal/btcwallet/snacl"
 	pb "github.com/roasbeef/DuckDuckXor/protos"
 	"golang.org/x/net/context"
@@ -19,15 +21,34 @@ var (
 	serverAddr = flag.String("server_addr", "127.0.0.1:10000", "The server address in the format of host:port")
 
 	documentDirectory = flag.String("doc_dir", ".", "Directory where documents to be indexed live")
+
+	doIndex = flag.String("index", "false", "perform indexing if true")
 )
 
 func init() {
-
 }
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
+	//read config file
+	db, err := bolt.Open("my.db", 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	c := NewClientDaemon(db)
+	if *doIndex == "true" {
+		c.Index(*documentDirectory)
+	}
+	awaitCommands(c)
+}
+
+func awaitCommands(c *clientDaemon) {
+	for {
+
+	}
 }
 
 type plainDoc struct {
@@ -37,10 +58,23 @@ type plainDoc struct {
 
 type clientDaemon struct {
 	eDocs     chan *pb.EncryptedDocInfo
-	keys      KeyManager
+	keys      *KeyManager
 	docKey    snacl.CryptoKey
 	docNames  map[uint32]string
 	plainDocs chan plainDoc
+}
+
+func NewClientDaemon(db *bolt.DB) *clientDaemon {
+	key, err := NewKeyManager(db, nil)
+	if err != nil {
+
+	}
+	return &clientDaemon{
+		eDocs:     make(chan *pb.EncryptedDocInfo),
+		keys:      key,
+		docNames:  make(map[uint32]string),
+		plainDocs: make(chan plainDoc),
+	}
 }
 
 func (c *clientDaemon) search(query string) {
@@ -48,7 +82,7 @@ func (c *clientDaemon) search(query string) {
 
 }
 
-func (c *clientDaemon) index(root string) {
+func (c *clientDaemon) Index(root string) {
 	i := NewIndexer()
 	i.Index(root)
 	go func(i *indexer) {

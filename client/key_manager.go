@@ -53,6 +53,7 @@ type keyRequestMessage struct {
 // cryptographic keys.
 type KeyManager struct {
 	wg          sync.WaitGroup
+	mainWg      *sync.WaitGroup
 	keyMap      map[KeyType][keySize]byte
 	keyRequests chan keyRequestMessage
 
@@ -66,12 +67,13 @@ type KeyManager struct {
 // NewKeyManager creates a new KeyManager. The KeyManager is responsible for
 // securely storing, deriving, and answering queries to retrieve our various
 // cryptographic keys.
-func NewKeyManager(db *bolt.DB, passphrase []byte) (*KeyManager, error) {
+func NewKeyManager(db *bolt.DB, passphrase []byte, mainWg *sync.WaitGroup) (*KeyManager, error) {
 	var err error
 	k := &KeyManager{
 		db:          db,
 		quit:        make(chan struct{}),
 		keyMap:      make(map[KeyType][keySize]byte),
+		mainWg:      mainWg,
 		keyRequests: make(chan keyRequestMessage),
 	}
 

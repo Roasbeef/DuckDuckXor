@@ -29,15 +29,15 @@ func (i *indexer) Index(homeIndex string, db *bolt.DB, numWorkers int) (*bloomMa
 	preProcessor := NewDocPreprocessor(cReader.DocOut, eHandler.createAbortFunc())
 	eHandler.stopChan <- preProcessor.Stop
 	//TODO every one of these classes should take in the main wg as a parameter
-	bloomMaster, err := newBloomMaster(nil, numWorkers)
+	bloomMaster, err := newBloomMaster(nil, numWorkers, &i.mainWg)
 	if err != nil {
 		//TODO handle error
 	}
-	keyManager, err := NewKeyManager(db, nil)
+	keyManager, err := NewKeyManager(db, nil, &i.mainWg)
 	if err != nil {
 		//TODO handle error
 	}
-	tfCalc := NewTermFrequencyCalculator(uint32(numWorkers), preProcessor.TfOut, bloomMaster, eHandler.createAbortFunc())
+	tfCalc := NewTermFrequencyCalculator(uint32(numWorkers), preProcessor.TfOut, bloomMaster, eHandler.createAbortFunc(), &i.mainWg)
 	eHandler.stopChan <- tfCalc.Stop
 
 	go cReader.Start()

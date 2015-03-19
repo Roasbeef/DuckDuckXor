@@ -127,13 +127,14 @@ type bloomMaster struct {
 	client pb.EncryptedSearchClient
 
 	wg       sync.WaitGroup
+	mainWg   *sync.WaitGroup
 	quit     chan struct{}
 	started  int32
 	shutdown int32
 }
 
 // newBloomMaster....
-func newBloomMaster(db *bolt.DB, numWorkers int) (*bloomMaster, error) {
+func newBloomMaster(db *bolt.DB, numWorkers int, mainWg *sync.WaitGroup) (*bloomMaster, error) {
 	// Do we already have all the filters saved?
 	// TODO(roasbeef): Determine this at an upper layer?
 	firstTime := false
@@ -154,6 +155,7 @@ func newBloomMaster(db *bolt.DB, numWorkers int) (*bloomMaster, error) {
 		xSetReady:          make(chan struct{}),
 		freqBucketsReady:   make(chan struct{}),
 		xFilterFinished:    make(chan struct{}),
+		mainWg:             mainWg,
 		finishedFreqBlooms: make(chan *finishedBloom, numBuckets),
 		wordQueries:        make(chan *wordQueryRequest, numBuckets),
 		bloomFreqBuckets:   make(map[BloomFrequencyBucket]*bloom.BloomFilter),
@@ -169,15 +171,15 @@ func (b *bloomMaster) Start() error {
 	}
 
 	if b.isFirstTime {
-		b.wg.Add(1)
+		AddToWg(b.wg, b.mainWg, 1)
 		go b.xFilterUploader()
 
 		for i := int32(0); i < b.numWorkers; i++ {
-			b.wg.Add(1)
+			AddToWg(b.wg, b.mainWg, 1)
 			go b.bloomWorker()
 		}
 
-		b.wg.Add(1)
+		AddToWg(b.wg, b.mainWg, 1)
 		go b.freqBloomSaver()
 	} else {
 
@@ -254,7 +256,7 @@ out:
 			break out
 		}
 	}
-	b.wg.Done()
+	WgDone(b.wg, b.mainWg)
 }
 
 // TODO(roasbeef): Have each stage of pipeline take WG group.
@@ -285,7 +287,7 @@ out:
 			break out
 		}
 	}
-	b.wg.Done()
+	WgDone(b.wg, b.mainWg)
 }
 
 // xFilterUploader waits until it has been signaled that the X-Set has been
@@ -312,7 +314,7 @@ out:
 			break out
 		}
 	}
-	b.wg.Done()
+	WgDone(b.wg, b.mainWg)
 }
 
 // queryHandler handles bloom filter word frequency queries.
@@ -334,7 +336,7 @@ out:
 			break out
 		}
 	}
-	b.wg.Done()
+	WgDone(b.wg, b.mainWg)
 }
 
 // InitXSet sends a message indicating that the xSet filter should be created.

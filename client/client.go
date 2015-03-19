@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"runtime"
+	"sync"
 
 	"github.com/boltdb/bolt"
 	"github.com/conformal/btcwallet/snacl"
@@ -48,11 +49,12 @@ func main() {
 		bloom, key, names = Index(*documentDirectory, db)
 	} else {
 		//TODO need to find a way to persistantly store the id->name map
-		key, err = NewKeyManager(db, []byte(*passPhrase))
+		var wg sync.WaitGroup
+		key, err = NewKeyManager(db, []byte(*passPhrase), &wg)
 		if err != nil {
 			log.Fatal(err)
 		}
-		bloom, err = newBloomMaster(db, *numWorkers)
+		bloom, err = newBloomMaster(db, *numWorkers, &wg)
 		if err != nil {
 			log.Fatal(err)
 		}

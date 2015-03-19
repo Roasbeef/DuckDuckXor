@@ -27,6 +27,7 @@ type TermFrequencyCalculator struct {
 	TermFreq           chan map[string]int
 	docIn              chan []string
 	wg                 sync.WaitGroup
+	mainWg             *sync.WaitGroup
 	ResultMap          map[string]int
 	started            int32
 	shutDown           int32
@@ -46,7 +47,7 @@ type TermFrequencyCalculator struct {
 }
 
 //TermFreq shoud have as many buffers as workers
-func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMaster, abort func(chan struct{}, error)) TermFrequencyCalculator {
+func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMaster, abort func(chan struct{}, error), mainWg *sync.WaitGroup) TermFrequencyCalculator {
 	size := make(chan bucketVals)
 	populate := make(chan bucketVals)
 	r := make(map[uint32]chan wordPair)
@@ -66,6 +67,7 @@ func NewTermFrequencyCalculator(numWorkers uint32, d chan []string, bm *bloomMas
 		numReducers:        numReducers,
 		shufflerChan:       make(chan struct{}, numReducers),
 		reducerQuit:        make(chan struct{}),
+		mainWg:             mainWg,
 		docIn:              d,
 		abort:              abort,
 		bloomFilterManager: bm,
@@ -99,21 +101,21 @@ func (t *TermFrequencyCalculator) Stop() error {
 
 func (t *TermFrequencyCalculator) initMappers() {
 	for i := uint32(0); i < t.numWorkers; i++ {
-		t.wg.Add(1)
+		AddToWg(t.wg, t.mainWg, 1)
 		go t.frequencyWorker()
 	}
 }
 
 func (t *TermFrequencyCalculator) initReducers() {
 	for i := uint32(0); i < t.numReducers; i++ {
-		t.wg.Add(1)
+		AddToWg(t.wg, t.mainWg, 1)
 		go t.reducer(i)
 	}
 }
 
 func (t *TermFrequencyCalculator) initShufflers() {
 	for i := uint32(0); i < t.numReducers; i++ {
-		t.wg.Add(1)
+		AddToWg(t.wg, t.mainWg, 1)
 		t.shufflerChan <- struct{}{}
 		go t.shuffler()
 	}
@@ -141,7 +143,7 @@ out:
 		}
 	}
 	t.mapperOnce.Do(func() { close(t.TermFreq) })
-	t.wg.Done()
+	WgDone(t.wg, t.mainWg)
 }
 
 func (t *TermFrequencyCalculator) shuffler() {
@@ -166,7 +168,7 @@ out:
 	if len(t.shufflerChan) == 0 {
 		t.shufflerOnce.Do(func() { close(t.reducerQuit) })
 	}
-	t.wg.Done()
+	WgDone(t.wg, t.mainWg)
 }
 
 func Hash(s string) uint32 {

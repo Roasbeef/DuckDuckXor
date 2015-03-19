@@ -4,7 +4,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"runtime"
@@ -25,6 +24,7 @@ var (
 
 	doIndex    = flag.Bool("index", false, "perform indexing if true")
 	passPhrase = flag.String("passPhrase", "", "password needed to access keys")
+	numWorkers = flag.Int("numWorkers", 1, "number of workers allowed at a time")
 )
 
 func init() {
@@ -41,22 +41,23 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	fmt.Println("ok, we're starting for real")
 	var key *KeyManager
 	var bloom *bloomMaster
+	var names map[uint32]string
 	if *doIndex == true {
-		bloom, key = Index(*documentDirectory, db)
+		bloom, key, names = Index(*documentDirectory, db)
 	} else {
+		//TODO need to find a way to persistantly store the id->name map
 		key, err = NewKeyManager(db, []byte(*passPhrase))
 		if err != nil {
 			log.Fatal(err)
 		}
-		bloom, err = newBloomMaster(db, 0)
+		bloom, err = newBloomMaster(db, *numWorkers)
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
-	c := NewClientDaemon(db, key, bloom)
+	c := NewClientDaemon(db, key, bloom, names)
 	awaitCommands(c)
 }
 
@@ -81,7 +82,7 @@ type clientDaemon struct {
 	client    pb.EncryptedSearchClient
 }
 
-func NewClientDaemon(db *bolt.DB, k *KeyManager, b *bloomMaster) *clientDaemon {
+func NewClientDaemon(db *bolt.DB, k *KeyManager, b *bloomMaster, dNames map[uint32]string) *clientDaemon {
 	conn, err := grpc.Dial(*serverAddr)
 	if err != nil {
 		//TODO handle error
@@ -92,7 +93,7 @@ func NewClientDaemon(db *bolt.DB, k *KeyManager, b *bloomMaster) *clientDaemon {
 		eDocs:     make(chan *pb.EncryptedDocInfo),
 		keys:      k,
 		bm:        b,
-		docNames:  make(map[uint32]string),
+		docNames:  dNames,
 		plainDocs: make(chan plainDoc),
 		client:    client,
 	}
@@ -103,7 +104,7 @@ func (c *clientDaemon) search(query string) {
 
 }
 
-func Index(root string, db *bolt.DB) (*bloomMaster, *KeyManager) {
+func Index(root string, db *bolt.DB) (*bloomMaster, *KeyManager, map[uint32]string) {
 
 	i := NewIndexer()
 	//	go func(i *indexer) {

@@ -18,12 +18,11 @@ func NewIndexer() *indexer {
 
 	return &indexer{
 
-		docNames:    make(map[uint32]string),
-		nameChannel: make(chan map[uint32]string),
+		docNames: make(map[uint32]string),
 	}
 }
 
-func (i *indexer) Index(homeIndex string, db *bolt.DB) (*bloomMaster, *KeyManager) {
+func (i *indexer) Index(homeIndex string, db *bolt.DB) (*bloomMaster, *KeyManager, map[uint32]string) {
 	eHandler := NewErrorHandler()
 	cReader := NewCorpusReader(homeIndex, eHandler.createAbortFunc())
 	eHandler.stopChan <- cReader.Stop
@@ -47,7 +46,7 @@ func (i *indexer) Index(homeIndex string, db *bolt.DB) (*bloomMaster, *KeyManage
 	tfCalc.Start()
 
 	i.mainWg.Wait()
-	return bloomMaster, keyManager
+	return bloomMaster, keyManager, i.docNames
 }
 
 func (i *indexer) gatherDocumentNames(dChan chan Doc) {
@@ -58,11 +57,6 @@ func (i *indexer) gatherDocumentNames(dChan chan Doc) {
 				break
 			}
 			i.docNames[doc.DocId] = doc.Name
-
 		}
-
 	}
-	//the reason I'm using this channel is so the client wont get the map until it is ready
-	i.nameChannel <- i.docNames
-	close(i.nameChannel)
 }

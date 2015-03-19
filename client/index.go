@@ -22,14 +22,14 @@ func NewIndexer() *indexer {
 	}
 }
 
-func (i *indexer) Index(homeIndex string, db *bolt.DB) (*bloomMaster, *KeyManager, map[uint32]string) {
+func (i *indexer) Index(homeIndex string, db *bolt.DB, numWorkers int) (*bloomMaster, *KeyManager, map[uint32]string) {
 	eHandler := NewErrorHandler()
 	cReader := NewCorpusReader(homeIndex, eHandler.createAbortFunc())
 	eHandler.stopChan <- cReader.Stop
 	preProcessor := NewDocPreprocessor(cReader.DocOut, eHandler.createAbortFunc())
 	eHandler.stopChan <- preProcessor.Stop
 	//TODO set up boltdb and make numWorkers a config
-	bloomMaster, err := newBloomMaster(nil, 1)
+	bloomMaster, err := newBloomMaster(nil, numWorkers)
 	if err != nil {
 		//TODO handle error
 	}
@@ -38,7 +38,7 @@ func (i *indexer) Index(homeIndex string, db *bolt.DB) (*bloomMaster, *KeyManage
 		//TODO handle error
 	}
 	//TODO make numWorkers a config
-	tfCalc := NewTermFrequencyCalculator(100, preProcessor.TfOut, bloomMaster, eHandler.createAbortFunc())
+	tfCalc := NewTermFrequencyCalculator(uint32(numWorkers), preProcessor.TfOut, bloomMaster, eHandler.createAbortFunc())
 	eHandler.stopChan <- tfCalc.Stop
 	cReader.Start()
 	preProcessor.Start()

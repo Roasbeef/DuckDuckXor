@@ -110,7 +110,7 @@ func Index(root string, db *bolt.DB) (*bloomMaster, *KeyManager, map[uint32]stri
 	//	go func(i *indexer) {
 	//		c.docNames = <-i.nameChannel
 	//	}(i)
-	return i.Index(root, db)
+	return i.Index(root, db, *numWorkers)
 
 }
 

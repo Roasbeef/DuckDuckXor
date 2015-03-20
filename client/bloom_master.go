@@ -59,8 +59,6 @@ type xSetSizeInitMsg struct {
 // the X-Set.
 type xSetAddMsg struct {
 	xTags []xTag
-	// TODO(roasbeef): Need error chans or???
-	//errChan error
 }
 
 // freqBucketInitMsg is sent by collaborators of the bloomMaster that wish to
@@ -131,10 +129,12 @@ type bloomMaster struct {
 	quit     chan struct{}
 	started  int32
 	shutdown int32
+
+	abort func(chan struct{}, error)
 }
 
 // newBloomMaster....
-func newBloomMaster(db *bolt.DB, numWorkers int, mainWg *sync.WaitGroup) (*bloomMaster, error) {
+func newBloomMaster(db *bolt.DB, numWorkers int, mainWg *sync.WaitGroup, abort func(chan struct{}, error)) (*bloomMaster, error) {
 	// Do we already have all the filters saved?
 	// TODO(roasbeef): Determine this at an upper layer?
 	firstTime := false
@@ -161,6 +161,7 @@ func newBloomMaster(db *bolt.DB, numWorkers int, mainWg *sync.WaitGroup) (*bloom
 		bloomFreqBuckets:   make(map[BloomFrequencyBucket]*bloom.BloomFilter),
 		fullBucketSize:     make(map[BloomFrequencyBucket]uint),
 		currentBucketSize:  make(map[BloomFrequencyBucket]uint),
+		abort:              abort,
 	}, nil
 }
 
@@ -233,13 +234,13 @@ out:
 				// Grab our bucket, creating if it doesn't already exist.
 				bloomBucket, err := tx.CreateBucketIfNotExists(bloomBucketKey)
 				if err != nil {
-					return err
+					b.abort(b.quit, err)
 				}
 
 				// Serialize and save our filter to disk.
 				serializedFilter, err := fBloom.filter.GobEncode()
 				if err != nil {
-					return err
+					b.abort(b.quit, err)
 				}
 
 				// Write the serializedFilter to disk.
@@ -249,7 +250,7 @@ out:
 				)
 			})
 			if err != nil {
-				// TODO(roasbeef): handle errs
+				b.abort(b.quit, err)
 			}
 			numSaved++
 		case <-b.quit:
@@ -259,7 +260,6 @@ out:
 	WgDone(&b.wg, b.mainWg)
 }
 
-// TODO(roasbeef): Have each stage of pipeline take WG group.
 // bloomWorker handles creating and populating our two categories of
 // bloom filters.
 func (b *bloomMaster) bloomWorker() {
@@ -303,13 +303,13 @@ out:
 		case <-b.xFilterFinished:
 			xFilterBytes, err := b.xSetFilter.GobEncode()
 			if err != nil {
-				// TODO(roasbeef): Handle error
+				b.abort(b.quit, err)
 			}
 
 			_, err = b.client.UploadXSetFilter(context.Background(),
 				&pb.XSetFilter{BloomFilter: xFilterBytes})
 			if err != nil {
-				// TODO(roasbeef): Handle error
+				b.abort(b.quit, err)
 			}
 			break out
 		}

@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha1"
 	"encoding/binary"
 	"flag"
 	"io"
@@ -13,6 +11,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/conformal/btcwallet/snacl"
+	"github.com/jacobsa/crypto/cmac"
 	pb "github.com/roasbeef/DuckDuckXor/protos"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -61,11 +60,11 @@ func main() {
 	} else {
 		//TODO need to find a way to persistantly store the id->name map
 		var wg sync.WaitGroup
-		key, err = NewKeyManager(db, []byte(*passPhrase), &wg)
+		key, err = NewKeyManager(db, []byte(*passPhrase), &wg, nil)
 		if err != nil {
 			log.Fatal(err)
 		}
-		bloom, err = newBloomMaster(db, *numWorkers, &wg)
+		bloom, err = newBloomMaster(db, *numWorkers, &wg, nil)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -189,7 +188,7 @@ func (c *clientDaemon) fetchDocuments(client pb.EncryptedSearchClient) {
 
 func (c *clientDaemon) encryptQuery(s string) []byte {
 	stag := c.keys.FetchSTagKey()
-	hm := hmac.New(sha1.New, stag[:16])
+	hm, _ := cmac.New(stag[:])
 	hm.Write([]byte(s))
 	return hm.Sum(nil)
 }

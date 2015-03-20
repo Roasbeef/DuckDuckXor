@@ -46,7 +46,7 @@ func TestDocEncrypter(t *testing.T) {
 	// Create a new EncryptedDocStreamer and launch only the docEncrypter
 	// goroutine.
 	streamChan := make(chan *document)
-	encrypter := NewEncryptedDocStreamer(1, &docKey, streamChan, nil)
+	encrypter := NewEncryptedDocStreamer(1, &docKey, streamChan, nil, nil)
 	encrypter.wg.Add(1)
 	go encrypter.docEncrypter()
 

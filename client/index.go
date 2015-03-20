@@ -24,19 +24,26 @@ func NewIndexer() *indexer {
 
 func (i *indexer) Index(homeIndex string, db *bolt.DB, numWorkers int) (*bloomMaster, *KeyManager, map[uint32]string) {
 	eHandler := NewErrorHandler()
-	cReader := NewCorpusReader(homeIndex, eHandler.createAbortFunc())
+	abortFunc := eHandler.createAbortFunc()
+
+	cReader := NewCorpusReader(homeIndex, abortFunc)
 	eHandler.stopChan <- cReader.Stop
-	preProcessor := NewDocPreprocessor(cReader.DocOut, eHandler.createAbortFunc())
+
+	preProcessor := NewDocPreprocessor(cReader.DocOut, abortFunc)
 	eHandler.stopChan <- preProcessor.Stop
-	//TODO every one of these classes should take in the main wg as a parameter
-	bloomMaster, err := newBloomMaster(nil, numWorkers, &i.mainWg)
+
+	bloomMaster, err := newBloomMaster(nil, numWorkers, &i.mainWg, abortFunc)
 	if err != nil {
 		//TODO handle error
 	}
-	keyManager, err := NewKeyManager(db, nil, &i.mainWg)
+	eHandler.stopChan <- bloomMaster.Stop
+
+	keyManager, err := NewKeyManager(db, nil, &i.mainWg, abortFunc)
 	if err != nil {
 		//TODO handle error
 	}
+	eHandler.stopChan <- keyManager.Stop
+
 	tfCalc := NewTermFrequencyCalculator(uint32(numWorkers), preProcessor.TfOut, bloomMaster, eHandler.createAbortFunc(), &i.mainWg)
 	eHandler.stopChan <- tfCalc.Stop
 

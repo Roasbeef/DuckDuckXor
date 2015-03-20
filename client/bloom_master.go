@@ -181,7 +181,7 @@ AddToWg(&b.wg, b.mainWg, 1)
 
 		for i := int32(0); i < b.numWorkers; i++ {
 fmt.Println("adding to WaitGroup Bloom")
-AddToWg(&b.wg, b.mainWg, 1)
+b.wg.Add(1)
 			go b.bloomWorker()
 		}
 
@@ -303,7 +303,7 @@ out:
 		}
 	}
 fmt.Println("subtracting from WaitGroup Bloom")
-WgDone(&b.wg, b.mainWg)
+b.wg.Done()
 }
 
 // xFilterUploader waits until it has been signaled that the X-Set has been

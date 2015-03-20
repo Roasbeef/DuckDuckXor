@@ -66,8 +66,6 @@ func (i *indexer) Index(homeIndex string, db *bolt.DB, numWorkers int, client pb
 	tfCalc.Start()
 	eDocStreamer.Start()
 	encryptedIndexer.Start()
-	i.mainWg.Done()
-
 	i.mainWg.Wait()
 	return bloomMaster, keyManager, i.docNames
 }

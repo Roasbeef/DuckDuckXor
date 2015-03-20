@@ -15,11 +15,17 @@ type InvIndexDocument struct {
 	DocId uint32
 }
 
+type Doc struct {
+	Name  string
+	DocId uint32
+}
+
 type DocPreprocessor struct {
 	quit          chan struct{}
 	started       int32
 	shutdown      int32
 	abort         func(chan struct{}, error)
+	docNames      chan Doc
 	TfOut         chan []string
 	InvIndexOut   chan *InvIndexDocument
 	DocEncryptOut chan *document
@@ -40,6 +46,7 @@ func NewDocPreprocessor(inp chan *document, e func(chan struct{}, error)) *DocPr
 		TfOut:         t,
 		InvIndexOut:   i,
 		DocEncryptOut: d,
+		docNames:      make(chan Doc),
 		XsetGenOut:    x,
 		input:         inp,
 		abort:         e,
@@ -78,6 +85,7 @@ out:
 			if !ok {
 				break out
 			}
+			d.docNames <- Doc{doc.Name(), doc.DocId}
 			invIndexMap := make(map[string]struct{})
 			_, err := io.Copy(b, doc)
 			if err != nil {
@@ -87,6 +95,7 @@ out:
 			for _, token := range parsedTFWords {
 				invIndexMap[token] = struct{}{}
 			}
+
 			InvIndDoc := &InvIndexDocument{invIndexMap, doc.DocId}
 			d.TfOut <- parsedTFWords
 			d.InvIndexOut <- InvIndDoc

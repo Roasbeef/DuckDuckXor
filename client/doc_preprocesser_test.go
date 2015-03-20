@@ -11,6 +11,10 @@ func TestPartitionStreams(t *testing.T) {
 
 	preprocesser := NewDocPreprocessor(c.DocOut, nil)
 	preprocesser.Start()
+	name := <-preprocesser.docNames
+	if name.Name != "test_directory/testFile1.txt" {
+		t.Error("gave incorrect doc name. expected test_directory/testfile1 but got: ", name.Name)
+	}
 	d := <-preprocesser.TfOut
 	testFile1 := []string{"i", "like", "banana", "sandwich", "cats", "are", "fun", "yummy", "yummy", "yummy"}
 	for i, token := range d {
@@ -21,6 +25,7 @@ func TestPartitionStreams(t *testing.T) {
 	<-preprocesser.InvIndexOut
 	<-preprocesser.DocEncryptOut
 	<-preprocesser.XsetGenOut
+	<-preprocesser.docNames
 	d = <-preprocesser.TfOut
 	testFile2 := []string{"the", "cat", "in", "the", "hat", "ate", "a", "yummy", "banana", "and", "didnt", "like", "it"}
 	for i, token := range d {

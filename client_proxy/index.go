@@ -88,6 +88,7 @@ out:
 	wg.Done()
 }
 
+// TODO(roasbeef): persist the doc nmae sfater chan close
 func (i *indexer) gatherDocumentNames(dChan chan Doc) {
 	for {
 		select {

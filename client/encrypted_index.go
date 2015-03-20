@@ -3,15 +3,15 @@ package main
 import (
 	"bytes"
 	"crypto/elliptic"
-	"crypto/hmac"
-	"crypto/sha1"
 	"encoding/binary"
+	"fmt"
 	"hash"
 	"io"
 	"math/big"
 	"sync"
 	"sync/atomic"
 
+	"github.com/jacobsa/crypto/cmac"
 	"github.com/roasbeef/DuckDuckXor/crypto"
 	pb "github.com/roasbeef/DuckDuckXor/protos"
 	"golang.org/x/net/context"
@@ -29,8 +29,8 @@ type indexDocPair struct {
 	lastId uint32
 }
 
-// NewWordIndexCounter creates and returns a new instance of the counter.
-func NewWordIndexCounter() *wordIndexCounter {
+// newWordIndexCounter creates and returns a new instance of the counter.
+func newWordIndexCounter() *wordIndexCounter {
 	return &wordIndexCounter{wordCounter: make(map[string]*indexDocPair)}
 }
 
@@ -74,10 +74,10 @@ type EncryptedIndexGenerator struct {
 
 	closeOnce     sync.Once
 	closeXtagChan func()
-	mainWg        sync.WaitGroup
+	mainWg        *sync.WaitGroup
 	janitorWG     sync.WaitGroup
 
-	keyMap map[KeyType]*[keySize]byte
+	keyMap map[KeyType][keySize]byte
 
 	counter *wordIndexCounter
 	bloom   *bloomMaster
@@ -87,10 +87,10 @@ type EncryptedIndexGenerator struct {
 
 // NewEncryptedIndexGenerator creates and returns a new instance of the
 // EncryptedIndexGenerator.
-func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType]*[keySize]byte, bloom *bloomMaster, mainWg sync.WaitGroup) (*EncryptedIndexGenerator, error) {
+func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType][keySize]byte, bloom *bloomMaster, client pb.EncryptedSearchClient, mainWg *sync.WaitGroup) *EncryptedIndexGenerator {
 	e := &EncryptedIndexGenerator{
 		quit:    make(chan struct{}),
-		counter: NewWordIndexCounter(),
+		counter: newWordIndexCounter(),
 		// TODO(roasbeef): buffer?
 		finishedXtags:     make(chan []xTag),
 		incomingDocuments: invertedIndexes,
@@ -99,6 +99,7 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 		numWorkers:        numWorkers,
 		bloom:             bloom,
 		mainWg:            mainWg,
+		client:            client,
 	}
 	var once sync.Once
 	e.closeOnce = once
@@ -106,7 +107,7 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 		close(e.finishedXtags)
 	}
 
-	return e, nil
+	return e
 }
 
 // Start kicks off the generator, spawning helper goroutines before returning.
@@ -115,21 +116,21 @@ func (e *EncryptedIndexGenerator) Start() error {
 		return nil
 	}
 	// Set up chan splitter
-	AddToWg(&e.wg, &e.mainWg, 1)
+	AddToWg(&e.wg, e.mainWg, 1)
 	c1, c2 := e.chanSplitter()
 
 	for i := 0; i < e.numWorkers/2; i++ {
-		AddToWg(&e.wg, &e.mainWg, 1)
+		AddToWg(&e.wg, e.mainWg, 1)
 		go e.xSetWorker(c1)
 	}
 
 	for i := 0; i < e.numWorkers/2; i++ {
-		AddToWg(&e.wg, &e.mainWg, 1)
-		AddToWg(&e.janitorWG, &e.mainWg, 1)
+		AddToWg(&e.wg, e.mainWg, 1)
+		AddToWg(&e.janitorWG, e.mainWg, 1)
 		go e.tSetWorker(c2)
 	}
 
-	AddToWg(&e.wg, &e.mainWg, 1)
+	AddToWg(&e.wg, e.mainWg, 1)
 	go e.tSetJanitor()
 
 	return nil
@@ -166,7 +167,7 @@ func (e *EncryptedIndexGenerator) chanSplitter() (chan *InvIndexDocument, chan *
 		}
 		close(xSetChan)
 		close(tSetChan)
-		WgDone(&e.wg, &e.mainWg)
+		WgDone(&e.wg, e.mainWg)
 	}()
 
 	return xSetChan, tSetChan
@@ -177,13 +178,13 @@ func (e *EncryptedIndexGenerator) chanSplitter() (chan *InvIndexDocument, chan *
 // off downstream to be added to the final xSet bloom filter.
 func (e *EncryptedIndexGenerator) xSetWorker(workChan chan *InvIndexDocument) {
 	xIndKey := e.keyMap[XIndKey]
-	xIndPRF := hmac.New(sha1.New, (*xIndKey)[:16]) // TODO(roasbeef): extract slice
+	xIndPRF, _ := cmac.New(xIndKey[:])
 
 	// TODO(roasbeef): re-name everywhere, not xtag itself but half of it (wtag?)
 	xTagKey := e.keyMap[XTagKey]
-	xTagPRF := hmac.New(sha1.New, (*xTagKey)[:16])
+	xTagPRF, _ := cmac.New(xTagKey[:])
 
-	indBytes := make([]byte, 16)
+	indBytes := make([]byte, 4)
 	indBuf := bytes.NewBuffer(indBytes)
 out:
 	for {
@@ -193,13 +194,14 @@ out:
 				break out
 			}
 			// TODO(roasbeef): re-use buffer?
-			xTags := make([]xTag, len(index.Words))
+			xTags := make([]xTag, 0, len(index.Words))
 			for word, _ := range index.Words {
 				// xind = F_p(K_i, ind)
 				binary.Write(indBuf, binary.BigEndian, index.DocId)
 				_, err := io.Copy(xIndPRF, indBuf)
 				if err != nil {
 					// TODO(roasbeef): hook up errs
+					fmt.Println("ERROR: %v", err)
 				}
 				xind := xIndPRF.Sum(nil)
 
@@ -231,7 +233,7 @@ out:
 	// Signal the streamer that there aren't any more xTags, but do this
 	// AT MOST once.
 	e.closeOnce.Do(e.closeXtagChan)
-	WgDone(&e.wg, &e.mainWg)
+	WgDone(&e.wg, e.mainWg)
 }
 
 // bloomStreamer is responsible for sending computed xTags off to the
@@ -252,37 +254,37 @@ out:
 			break out
 		}
 	}
-	WgDone(&e.wg, &e.mainWg)
+	WgDone(&e.wg, e.mainWg)
 }
 
 // tSetWorker is responsible computing and sending off t-set tuples for each
-// unique word per document recieved. This entails computing the proper t-set
-// bucket and label for a tuple, it's blinding value for conjunctive queries,
+// unique word per document recieved. This entails computing the proper t-set // bucket and label for a tuple, it's blinding value for conjunctive queries,
 // and permuting the document ID, unique for each word.
 func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 	tSetStream, err := e.client.UploadTSet(context.Background())
 	if err != nil {
 		// TODO(roasbeef): Handle err
+		fmt.Println("TSET ERROR: %v", err)
 	}
 
 	// TODO(roasbeef): Cache these values amongst workers?
 	xIndKey := e.keyMap[XIndKey]
-	xIndPRF := hmac.New(sha1.New, (*xIndKey)[:16])
+	xIndPRF, _ := cmac.New(xIndKey[:])
 
 	blindKey := e.keyMap[DHBlindKey]
-	blindPRF := hmac.New(sha1.New, (*blindKey)[:16])
+	blindPRF, _ := cmac.New(blindKey[:])
 
 	wTrapKey := e.keyMap[WTrapKey]
-	wTrapPRF := hmac.New(sha1.New, (*wTrapKey)[:16])
+	wTrapPRF, _ := cmac.New(wTrapKey[:])
 
 	sTagKey := e.keyMap[STagKey]
-	sTagPRF := hmac.New(sha1.New, (*sTagKey)[:16])
+	sTagPRF, _ := cmac.New(sTagKey[:])
 out:
 	for {
 		select {
 		case index, more := <-workChan:
 			if !more {
-				tSetStream.CloseSend()
+				tSetStream.CloseAndRecv()
 				break out
 			}
 
@@ -311,6 +313,7 @@ out:
 				if err := tSetStream.Send(tSetShard); err != nil {
 					// log.Fatalf("Failed to send a doc: %v", err)
 					// TODO(roasbeef): handle errs
+					fmt.Println("TSET ERROR: %v", err)
 				}
 			}
 
@@ -322,8 +325,8 @@ out:
 			break out
 		}
 	}
-	WgDone(&e.janitorWG, &e.mainWg)
-	WgDone(&e.wg, &e.mainWg)
+	WgDone(&e.janitorWG, e.mainWg)
+	WgDone(&e.wg, e.mainWg)
 }
 
 // tSetJanitor...
@@ -335,16 +338,16 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 	}
 
 	xIndKey := e.keyMap[XIndKey]
-	xIndPRF := hmac.New(sha1.New, (*xIndKey)[:16])
+	xIndPRF, _ := cmac.New(xIndKey[:])
 
 	blindKey := e.keyMap[DHBlindKey]
-	blindPRF := hmac.New(sha1.New, (*blindKey)[:16])
+	blindPRF, _ := cmac.New(blindKey[:])
 
 	wTrapKey := e.keyMap[WTrapKey]
-	wTrapPRF := hmac.New(sha1.New, (*wTrapKey)[:16])
+	wTrapPRF, _ := cmac.New(wTrapKey[:])
 
 	sTagKey := e.keyMap[STagKey]
-	sTagPRF := hmac.New(sha1.New, (*sTagKey)[:16])
+	sTagPRF, _ := cmac.New(sTagKey[:])
 
 	// TODO(roasbeef): WAYY to redundant need to clean up.
 	for word, pair := range e.counter.wordCounter {
@@ -379,8 +382,8 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 		xIndPRF.Reset()
 	}
 
-	tSetStream.CloseSend()
-	WgDone(&e.wg, &e.mainWg)
+	tSetStream.CloseAndRecv()
+	WgDone(&e.wg, e.mainWg)
 }
 
 // computeBlindingValue computes the blinding value used for blinded
@@ -415,7 +418,10 @@ func computeBlindedXind(z, xind []byte, groupOrder *big.Int) []byte {
 
 	// y = xind * z^-1
 	zInverse := new(big.Int).ModInverse(zBig, groupOrder)
-	y := new(big.Int).Mul(xindBig, zInverse)
+	y := new(big.Int).Mod(
+		new(big.Int).Mul(xindBig, zInverse),
+		groupOrder,
+	)
 	return y.Bytes()
 }
 

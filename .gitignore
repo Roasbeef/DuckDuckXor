@@ -4,6 +4,7 @@
 *.so
 *.swp
 *.swo
+*.swn
 # Folders
 _obj
 _test

@@ -1,21 +1,18 @@
 package crypto
 
 import (
-	"bytes"
-	"crypto/hmac"
-	"crypto/sha1"
 	"crypto/sha512"
 	"encoding/binary"
-	"encoding/hex"
 	"hash"
 
-	"github.com/roasbeef/perm-crypt"
+	"github.com/jacobsa/crypto/cmac"
 )
 
 // CalcTsetVals given an stag and document index, returns a triple containing
 // the information required to look up, and decrypt document data from the t-set.
-func CalcTsetVals(stag []byte, index uint32) ([1]byte, [16]byte, [37]byte) {
-	prf := hmac.New(sha1.New, stag)
+func CalcTsetVals(stag []byte, index uint32) ([1]byte, [16]byte, [33]byte) {
+	// F(stag, index)
+	prf, _ := cmac.New(stag)
 	binary.Write(prf, binary.BigEndian, index)
 	m := prf.Sum(nil)
 
@@ -32,10 +29,11 @@ func CalcTsetVals(stag []byte, index uint32) ([1]byte, [16]byte, [37]byte) {
 	var label [16]byte
 	copy(label[:], tSetSum[1:17])
 
-	// end byte + 4 byte doc ID + 32 byte blind value
+	// end byte + 4 byte doc ID + 28 byte blind value
 	// 37 bytes for the one-time pad.
-	var otp [37]byte
-	copy(otp[:], tSetSum[17:54])
+	// TODO(roasbeef): re-visit size selection.
+	var otp [33]byte
+	copy(otp[:], tSetSum[17:50])
 
 	return bucket, label, otp
 }
@@ -55,29 +53,33 @@ func XorBytes(x, y []byte) []byte {
 // The key for the AES-FFX scheme is derived from the word, making each
 // encrypted document unique to each distinct word.
 func PermuteDocId(word string, wPrf hash.Hash, docId uint32) []byte {
+	var xIndBuf [4]byte
+	binary.BigEndian.PutUint32(xIndBuf[:], docId)
+	return xIndBuf[:]
 	// K_e = F(k_s, w)
-	wPrf.Write([]byte(word))
-	wordPermKey := wPrf.Sum(nil)
+	/*
+		wPrf.Write([]byte(word))
+		wordPermKey := wPrf.Sum(nil)
 
-	wordPerm, err := aesffx.NewCipher(16, wordPermKey, nil)
-	if err != nil {
-		// TODO(roasbeef): handle err
-	}
+		wordPerm, err := aesffx.NewCipher(16, wordPermKey, nil)
+		if err != nil {
+			// TODO(roasbeef): handle err
+		}
 
-	// e = Enc(Ke, ind)
-	var xindBuf bytes.Buffer
-	binary.Write(&xindBuf, binary.BigEndian, docId)
-	xindString := hex.EncodeToString(xindBuf.Bytes())
-	permutedId, err := wordPerm.Encrypt(xindString)
-	if err != nil {
-		// TODO(roasbeef): handle err
-	}
+		// e = Enc(Ke, ind)
+		var xIndBuf [32]byte
+		binary.BigEndian.PutUint32(xIndBuf[:], docId)
+		xindString := hex.EncodeToString(xIndBuf[:])
+		permutedId, err := wordPerm.Encrypt(xindString)
+		if err != nil {
+			// TODO(roasbeef): handle err
+		}
 
-	permutedBytes, err := hex.DecodeString(permutedId)
-	if err != nil {
-		// TODO(roasbeef): handle err
-	}
-	return permutedBytes
+		permutedBytes, err := hex.DecodeString(permutedId)
+		if err != nil {
+			// TODO(roasbeef): handle err
+		}
+		return permutedBytes*/
 }
 
 // UnpermuteDocId computes the keyed inverse-permutation for the given document
@@ -85,27 +87,28 @@ func PermuteDocId(word string, wPrf hash.Hash, docId uint32) []byte {
 // using AES-FFX a format preserving encryption scheme based on AES and a
 // feisel network. The key for the AES-FFX scheme is derived from the word,
 // making each encrypted document unique to each distinct word.
-func UnpermuteDocId(word string, wPrf hash.Hash, docId []byte) ([]byte, error) {
-	// K_e = F(k_s, w)
+func UnpermuteDocId(word string, wPrf hash.Hash, docId []byte) (uint32, error) {
+	return binary.BigEndian.Uint32(docId), nil
+	/*// K_e = F(k_s, w)
 	wPrf.Write([]byte(word))
 	wordPermKey := wPrf.Sum(nil)
 
 	wordPerm, err := aesffx.NewCipher(16, wordPermKey, nil)
 	if err != nil {
-		return nil, err
+		return uint32(0), err
 	}
 
 	// e = Enc(Ke, ind)
 	xindString := hex.EncodeToString(docId)
 	permutedId, err := wordPerm.Decrypt(xindString)
 	if err != nil {
-		return nil, err
+		return uint32(0), err
 	}
 
-	permutedBytes, err := hex.DecodeString(permutedId)
+	dId, err := strconv.ParseUint(permutedId, 16, 32)
 	if err != nil {
-		return nil, err
+		return uint32(0), err
 	}
 
-	return permutedBytes, nil
+	return uint32(dId), nil*/
 }

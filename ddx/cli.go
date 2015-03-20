@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -26,7 +27,14 @@ func main() {
 	proxyClient := pb.NewProxySearchClient(conn)
 	query := os.Args[2]
 
-	resp, err := proxyClient.Search(context.Background(), &pb.PlainTextQuery{query})
+	stream, err := proxyClient.Search(context.Background(), &pb.PlainTextQuery{query})
 
-	fmt.Println(resp)
+	for {
+		doc, err := stream.Recv()
+		if err == io.EOF {
+			fmt.Println("Got EOF finishing up")
+			return
+		}
+		fmt.Println(doc)
+	}
 }

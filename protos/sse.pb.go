@@ -21,6 +21,7 @@ It has these top-level messages:
 	PlainDoc
 	CipherDocAck
 	KeywordQuery
+	PlainTextQuery
 	BooleanSearchQuery
 	XTokenRequest
 	XTokenResponse
@@ -172,6 +173,14 @@ type KeywordQuery struct {
 func (m *KeywordQuery) Reset()         { *m = KeywordQuery{} }
 func (m *KeywordQuery) String() string { return proto.CompactTextString(m) }
 func (*KeywordQuery) ProtoMessage()    {}
+
+type PlainTextQuery struct {
+	QueryWord string `protobuf:"bytes,1,opt,name=query_word" json:"query_word,omitempty"`
+}
+
+func (m *PlainTextQuery) Reset()         { *m = PlainTextQuery{} }
+func (m *PlainTextQuery) String() string { return proto.CompactTextString(m) }
+func (*PlainTextQuery) ProtoMessage()    {}
 
 type BooleanSearchQuery struct {
 	Type   BooleanSearchQuery_SearchType            `protobuf:"varint,1,opt,name=type,enum=sse_protos.BooleanSearchQuery_SearchType" json:"type,omitempty"`
@@ -759,7 +768,7 @@ var _EncryptedSearch_serviceDesc = grpc.ServiceDesc{
 // Client API for ProxySearch service
 
 type ProxySearchClient interface {
-	Search(ctx context.Context, in *KeywordQuery, opts ...grpc.CallOption) (ProxySearch_SearchClient, error)
+	Search(ctx context.Context, in *PlainTextQuery, opts ...grpc.CallOption) (ProxySearch_SearchClient, error)
 }
 
 type proxySearchClient struct {
@@ -770,7 +779,7 @@ func NewProxySearchClient(cc *grpc.ClientConn) ProxySearchClient {
 	return &proxySearchClient{cc}
 }
 
-func (c *proxySearchClient) Search(ctx context.Context, in *KeywordQuery, opts ...grpc.CallOption) (ProxySearch_SearchClient, error) {
+func (c *proxySearchClient) Search(ctx context.Context, in *PlainTextQuery, opts ...grpc.CallOption) (ProxySearch_SearchClient, error) {
 	stream, err := grpc.NewClientStream(ctx, &_ProxySearch_serviceDesc.Streams[0], c.cc, "/sse_protos.ProxySearch/Search", opts...)
 	if err != nil {
 		return nil, err
@@ -805,7 +814,7 @@ func (x *proxySearchSearchClient) Recv() (*PlainDoc, error) {
 // Server API for ProxySearch service
 
 type ProxySearchServer interface {
-	Search(*KeywordQuery, ProxySearch_SearchServer) error
+	Search(*PlainTextQuery, ProxySearch_SearchServer) error
 }
 
 func RegisterProxySearchServer(s *grpc.Server, srv ProxySearchServer) {
@@ -813,7 +822,7 @@ func RegisterProxySearchServer(s *grpc.Server, srv ProxySearchServer) {
 }
 
 func _ProxySearch_Search_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(KeywordQuery)
+	m := new(PlainTextQuery)
 	if err := stream.RecvProto(m); err != nil {
 		return err
 	}

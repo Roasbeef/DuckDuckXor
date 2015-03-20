@@ -22,9 +22,7 @@ service EncryptedSearch {
 }
 
 service ProxySearch{
-
-    rpc Search(KeywordQuery) returns ( stream PlainDoc);
-
+    rpc Search(PlainTextQuery) returns (stream PlainDoc);
 }
 
 message DocInfo {
@@ -89,6 +87,10 @@ message CipherDocAck {
 // stag = F(K_t, w)
 message KeywordQuery {
     bytes stag = 1;
+}
+
+message PlainTextQuery {
+    string query_word = 1;
 }
 
 message BooleanSearchQuery {

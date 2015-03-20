@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/elliptic"
 	"encoding/binary"
-	"fmt"
 	"hash"
 	"io"
 	"math/big"
@@ -83,15 +82,16 @@ type EncryptedIndexGenerator struct {
 	bloom   *bloomMaster
 	client  pb.EncryptedSearchClient
 	curve   elliptic.Curve
+
+	abort func(chan struct{}, error)
 }
 
 // NewEncryptedIndexGenerator creates and returns a new instance of the
 // EncryptedIndexGenerator.
-func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType][keySize]byte, bloom *bloomMaster, client pb.EncryptedSearchClient, mainWg *sync.WaitGroup) *EncryptedIndexGenerator {
+func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType][keySize]byte, bloom *bloomMaster, client pb.EncryptedSearchClient, mainWg *sync.WaitGroup, abort func(chan struct{}, error)) *EncryptedIndexGenerator {
 	e := &EncryptedIndexGenerator{
-		quit:    make(chan struct{}),
-		counter: newWordIndexCounter(),
-		// TODO(roasbeef): buffer?
+		quit:              make(chan struct{}),
+		counter:           newWordIndexCounter(),
 		finishedXtags:     make(chan []xTag),
 		incomingDocuments: invertedIndexes,
 		keyMap:            keyMap,
@@ -100,6 +100,7 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 		bloom:             bloom,
 		mainWg:            mainWg,
 		client:            client,
+		abort:             abort,
 	}
 	var once sync.Once
 	e.closeOnce = once
@@ -200,8 +201,7 @@ out:
 				binary.Write(indBuf, binary.BigEndian, index.DocId)
 				_, err := io.Copy(xIndPRF, indBuf)
 				if err != nil {
-					// TODO(roasbeef): hook up errs
-					fmt.Println("ERROR: %v", err)
+					e.abort(e.quit, err)
 				}
 				xind := xIndPRF.Sum(nil)
 
@@ -263,8 +263,7 @@ out:
 func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 	tSetStream, err := e.client.UploadTSet(context.Background())
 	if err != nil {
-		// TODO(roasbeef): Handle err
-		fmt.Println("TSET ERROR: %v", err)
+		e.abort(e.quit, err)
 	}
 
 	// TODO(roasbeef): Cache these values amongst workers?
@@ -304,16 +303,14 @@ out:
 
 				// Permute the document ID using a format
 				// preserving encryption scheme.
-				e := crypto.PermuteDocId(word, wTrapPRF, index.DocId)
+				eId := crypto.PermuteDocId(word, wTrapPRF, index.DocId)
 
 				// Our tuple inverted index tuple element is
 				// then (e, y)
-				tSetShard := calcTsetTuple(sTagPRF, word, docCounter, e, y, false)
+				tSetShard := calcTsetTuple(sTagPRF, word, docCounter, eId, y, false)
 
 				if err := tSetStream.Send(tSetShard); err != nil {
-					// log.Fatalf("Failed to send a doc: %v", err)
-					// TODO(roasbeef): handle errs
-					fmt.Println("TSET ERROR: %v", err)
+					e.abort(e.quit, err)
 				}
 			}
 
@@ -334,7 +331,7 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 	e.janitorWG.Wait()
 	tSetStream, err := e.client.UploadTSet(context.Background())
 	if err != nil {
-		// TODO(roasbeef): Handle err
+		e.abort(e.quit, err)
 	}
 
 	xIndKey := e.keyMap[XIndKey]
@@ -366,15 +363,14 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 
 		// Permute the document ID using a format
 		// preserving encryption scheme.
-		e := crypto.PermuteDocId(word, wTrapPRF, docId)
+		eId := crypto.PermuteDocId(word, wTrapPRF, docId)
 
 		// Our tuple inverted index tuple element is
 		// then (e, y)
-		tSetShard := calcTsetTuple(sTagPRF, word, docIndex, e, y, true)
+		tSetShard := calcTsetTuple(sTagPRF, word, docIndex, eId, y, true)
 
 		if err := tSetStream.Send(tSetShard); err != nil {
-			// log.Fatalf("Failed to send a doc: %v", err)
-			// TODO(roasbeef): handle errs
+			e.abort(e.quit, err)
 		}
 		wTrapPRF.Reset()
 		sTagPRF.Reset()

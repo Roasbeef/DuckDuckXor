@@ -46,7 +46,7 @@ func TestWordIndexCounter(t *testing.T) {
 func TestChannelSplitter(t *testing.T) {
 	var mainWg sync.WaitGroup
 	indexChan := make(chan *InvIndexDocument)
-	e := NewEncryptedIndexGenerator(indexChan, 5, nil, nil, nil, &mainWg)
+	e := NewEncryptedIndexGenerator(indexChan, 5, nil, nil, nil, &mainWg, nil)
 	AddToWg(&e.wg, &mainWg, 1)
 	c1, c2 := e.chanSplitter()
 
@@ -91,7 +91,7 @@ func TestXsetWorker(t *testing.T) {
 	}
 
 	indexChan := make(chan *InvIndexDocument)
-	e := NewEncryptedIndexGenerator(indexChan, 5, keyMap, nil, nil, &mainWg)
+	e := NewEncryptedIndexGenerator(indexChan, 5, keyMap, nil, nil, &mainWg, nil)
 	AddToWg(&e.wg, &mainWg, 1)
 	c1, c2 := e.chanSplitter()
 
@@ -166,7 +166,7 @@ func TestBloomStreamer(t *testing.T) {
 
 	// Create a bloom master, and a worker so our calls to add xtags will
 	// be processed.
-	b, err := newBloomMaster(db, 1, &mainWg)
+	b, err := newBloomMaster(db, 1, &mainWg, nil)
 	// Should only house 4 xtags.
 	b.xFinalSize = 1
 	b.xSetFilter = bloom.NewWithEstimates(100, 0.00001)
@@ -177,7 +177,7 @@ func TestBloomStreamer(t *testing.T) {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}
 
-	e := NewEncryptedIndexGenerator(nil, 5, nil, b, nil, &mainWg)
+	e := NewEncryptedIndexGenerator(nil, 5, nil, b, nil, &mainWg, nil)
 	AddToWg(&e.wg, &mainWg, 1)
 	go e.bloomStreamer()
 
@@ -269,7 +269,7 @@ func TestTsetWorker(t *testing.T) {
 	}
 
 	indexChan := make(chan *InvIndexDocument)
-	e := NewEncryptedIndexGenerator(indexChan, 5, keyMap, nil, MockSearchClient{}, &mainWg)
+	e := NewEncryptedIndexGenerator(indexChan, 5, keyMap, nil, MockSearchClient{}, &mainWg, nil)
 	AddToWg(&e.wg, &mainWg, 1)
 	c1, c2 := e.chanSplitter()
 

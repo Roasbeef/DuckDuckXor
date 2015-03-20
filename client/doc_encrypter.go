@@ -31,10 +31,12 @@ type EncryptedDocStreamer struct {
 	shutdown int32
 	quit     chan struct{}
 	wg       sync.WaitGroup
+
+	abort func(chan struct{}, error)
 }
 
 // NewEncryptedDocStreamer creates a new EncryptedDocStreamer.
-func NewEncryptedDocStreamer(numWorkers int32, docKey *[keySize]byte, docStream chan *document, client pb.EncryptedSearchClient) *EncryptedDocStreamer {
+func NewEncryptedDocStreamer(numWorkers int32, docKey *[keySize]byte, docStream chan *document, client pb.EncryptedSearchClient, abort func(chan struct{}, error)) *EncryptedDocStreamer {
 	q := make(chan struct{})
 	return &EncryptedDocStreamer{
 		docKey:        snacl.CryptoKey(*docKey),
@@ -43,12 +45,8 @@ func NewEncryptedDocStreamer(numWorkers int32, docKey *[keySize]byte, docStream 
 		numWorkers:    numWorkers,
 		quit:          q,
 		client:        client,
+		abort:         abort,
 	}
-}
-
-// Coordinator...
-// TODO(roasbeef): Why did we need this again?
-func (e *EncryptedDocStreamer) Coordinator() {
 }
 
 // Start kicks off the EncryptedDocStreamer, creating all helper goroutines.
@@ -93,17 +91,17 @@ out:
 
 			_, err := io.Copy(&plainBuffer, doc)
 			if err != nil {
-				// TODO(roasbeef): Handle failure
+				e.abort(e.quit, err)
 			}
 
 			err = doc.Close()
 			if err != nil {
-				// TODO(roasbeef): Handle failure
+				e.abort(e.quit, err)
 			}
 
 			cipherDoc, err := e.docKey.Encrypt(plainBuffer.Bytes())
 			if err != nil {
-				// TODO(roasbeef): Handle failure
+				e.abort(e.quit, err)
 			}
 
 			e.encryptedDocs <- &encryptedDoc{
@@ -126,7 +124,7 @@ out:
 func (e *EncryptedDocStreamer) docUploader() {
 	cipherStream, err := e.client.UploadCipherDocs(context.Background())
 	if err != nil {
-		// TODO(roasbeef): Handle err
+		e.abort(e.quit, err)
 	}
 out:
 	for {
@@ -142,8 +140,7 @@ out:
 			}
 
 			if err := cipherStream.Send(cipherDoc); err != nil {
-				// log.Fatalf("Failed to send a doc: %v", err)
-				// TODO(roasbeef): handle errs
+				e.abort(e.quit, err)
 			}
 		case <-e.quit:
 			break out

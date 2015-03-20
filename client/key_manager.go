@@ -62,12 +62,14 @@ type KeyManager struct {
 	quit     chan struct{}
 	started  int32
 	shutdown int32
+
+	abort func(chan struct{}, error)
 }
 
 // NewKeyManager creates a new KeyManager. The KeyManager is responsible for
 // securely storing, deriving, and answering queries to retrieve our various
 // cryptographic keys.
-func NewKeyManager(db *bolt.DB, passphrase []byte, mainWg *sync.WaitGroup) (*KeyManager, error) {
+func NewKeyManager(db *bolt.DB, passphrase []byte, mainWg *sync.WaitGroup, abort func(chan struct{}, error)) (*KeyManager, error) {
 	var err error
 	k := &KeyManager{
 		db:          db,
@@ -75,6 +77,7 @@ func NewKeyManager(db *bolt.DB, passphrase []byte, mainWg *sync.WaitGroup) (*Key
 		keyMap:      make(map[KeyType][keySize]byte),
 		mainWg:      mainWg,
 		keyRequests: make(chan keyRequestMessage),
+		abort:       abort,
 	}
 
 	// If our key bucket is present, then we've already done the initial set-up.

@@ -62,12 +62,12 @@ func (i *indexer) gatherDocumentNames(dChan chan Doc) {
 	}
 }
 
-func AddToWg(local sync.WaitGroup, main *sync.WaitGroup, val int) {
+func AddToWg(local *sync.WaitGroup, main *sync.WaitGroup, val int) {
 	local.Add(val)
 	main.Add(val)
 }
 
-func WgDone(local sync.WaitGroup, main *sync.WaitGroup) {
+func WgDone(local *sync.WaitGroup, main *sync.WaitGroup) {
 	local.Done()
 	main.Done()
 }

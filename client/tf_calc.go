@@ -101,21 +101,21 @@ func (t *TermFrequencyCalculator) Stop() error {
 
 func (t *TermFrequencyCalculator) initMappers() {
 	for i := uint32(0); i < t.numWorkers; i++ {
-		AddToWg(t.wg, t.mainWg, 1)
+		AddToWg(&t.wg, t.mainWg, 1)
 		go t.frequencyWorker()
 	}
 }
 
 func (t *TermFrequencyCalculator) initReducers() {
 	for i := uint32(0); i < t.numReducers; i++ {
-		AddToWg(t.wg, t.mainWg, 1)
+		AddToWg(&t.wg, t.mainWg, 1)
 		go t.reducer(i)
 	}
 }
 
 func (t *TermFrequencyCalculator) initShufflers() {
 	for i := uint32(0); i < t.numReducers; i++ {
-		AddToWg(t.wg, t.mainWg, 1)
+		AddToWg(&t.wg, t.mainWg, 1)
 		t.shufflerChan <- struct{}{}
 		go t.shuffler()
 	}
@@ -143,7 +143,7 @@ out:
 		}
 	}
 	t.mapperOnce.Do(func() { close(t.TermFreq) })
-	WgDone(t.wg, t.mainWg)
+	WgDone(&t.wg, t.mainWg)
 }
 
 func (t *TermFrequencyCalculator) shuffler() {
@@ -168,7 +168,7 @@ out:
 	if len(t.shufflerChan) == 0 {
 		t.shufflerOnce.Do(func() { close(t.reducerQuit) })
 	}
-	WgDone(t.wg, t.mainWg)
+	WgDone(&t.wg, t.mainWg)
 }
 
 func Hash(s string) uint32 {

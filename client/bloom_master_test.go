@@ -25,8 +25,9 @@ func TestQueryWordFrequency(t *testing.T) {
 	defer os.Remove(path)
 	defer db.Close()
 
+	var mainWg sync.WaitGroup
 	// Create our bloom master.
-	b, err := newBloomMaster(db, 2)
+	b, err := newBloomMaster(db, 2, &mainWg)
 	if err != nil {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}
@@ -38,7 +39,7 @@ func TestQueryWordFrequency(t *testing.T) {
 	b.bloomFreqBuckets[Below100].Add([]byte("cool"))
 
 	// Launch our query handler.
-	b.wg.Add(1)
+	AddToWg(&b.wg, &mainWg, 1)
 	go b.queryHandler()
 
 	// Test some queries.
@@ -65,8 +66,9 @@ func TestFreqBucketAdd(t *testing.T) {
 	defer os.Remove(path)
 	defer db.Close()
 
+	var mainWg sync.WaitGroup
 	// Create our bloom master.
-	b, err := newBloomMaster(db, 2)
+	b, err := newBloomMaster(db, 2, &mainWg)
 	if err != nil {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}
@@ -77,11 +79,11 @@ func TestFreqBucketAdd(t *testing.T) {
 	b.fullBucketSize[Below100] = 5
 
 	// Launch two bloom workers.
-	b.wg.Add(2)
+	AddToWg(&b.wg, &mainWg, 2)
 	go b.bloomWorker()
 	go b.bloomWorker()
 
-	b.wg.Add(1)
+	AddToWg(&b.wg, &mainWg, 1)
 	go b.queryHandler()
 
 	var wg sync.WaitGroup
@@ -119,14 +121,15 @@ func TestFreqBucketInitAndSigal(t *testing.T) {
 	defer os.Remove(path)
 	defer db.Close()
 
+	var mainWg sync.WaitGroup
 	// Create our bloom master.
-	b, err := newBloomMaster(db, 2)
+	b, err := newBloomMaster(db, 2, &mainWg)
 	if err != nil {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}
 
 	// Launch two bloom workers.
-	b.wg.Add(2)
+	AddToWg(&b.wg, &mainWg, 2)
 	go b.bloomWorker()
 	go b.bloomWorker()
 
@@ -176,8 +179,9 @@ func TestXSetAdd(t *testing.T) {
 	defer os.Remove(path)
 	defer db.Close()
 
+	var mainWg sync.WaitGroup
 	// Create our bloom master.
-	b, err := newBloomMaster(db, 2)
+	b, err := newBloomMaster(db, 2, &mainWg)
 	if err != nil {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}
@@ -186,7 +190,7 @@ func TestXSetAdd(t *testing.T) {
 	b.xFinalSize = 4
 
 	// Create some bloom workers.
-	b.wg.Add(2)
+	AddToWg(&b.wg, &mainWg, 2)
 	go b.bloomWorker()
 	go b.bloomWorker()
 
@@ -223,14 +227,15 @@ func TestXSetInit(t *testing.T) {
 	defer os.Remove(path)
 	defer db.Close()
 
+	var mainWg sync.WaitGroup
 	// Create our bloom master.
-	b, err := newBloomMaster(db, 2)
+	b, err := newBloomMaster(db, 2, &mainWg)
 	if err != nil {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}
 
 	// Launch two bloom workers.
-	b.wg.Add(2)
+	AddToWg(&b.wg, &mainWg, 2)
 	go b.bloomWorker()
 	go b.bloomWorker()
 
@@ -274,17 +279,18 @@ func TestFilterUploader(t *testing.T) {
 
 func TestFreqBloomSaver(t *testing.T) {
 	db, path := createFakeDB(t)
+	var mainWg sync.WaitGroup
 	defer os.Remove(path)
 	defer db.Close()
 
 	// Create our bloom master.
-	b, err := newBloomMaster(db, 2)
+	b, err := newBloomMaster(db, 2, &mainWg)
 	if err != nil {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}
 
 	// Launch the bloom saver.
-	b.wg.Add(1)
+	AddToWg(&b.wg, &mainWg, 1)
 	go b.freqBloomSaver()
 
 	bloomSizes := []uint{100, 50, 90, 10}
@@ -336,9 +342,10 @@ func TestShutDownIgnoreRequests(t *testing.T) {
 	db, path := createFakeDB(t)
 	defer os.Remove(path)
 	defer db.Close()
+	var mainWg sync.WaitGroup
 
 	// Create our bloom master.
-	b, err := newBloomMaster(db, 2)
+	b, err := newBloomMaster(db, 2, &mainWg)
 	if err != nil {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}
@@ -356,13 +363,15 @@ func TestStartUpShutDown(t *testing.T) {
 	defer os.Remove(path)
 	defer db.Close()
 
+	var mainWg sync.WaitGroup
 	// Create our bloom master.
-	b, err := newBloomMaster(db, 2)
+	b, err := newBloomMaster(db, 2, &mainWg)
 	if err != nil {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}
 
 	b.Start()
+	fmt.Printf("got here\n")
 	b.Stop()
 }
 
@@ -370,9 +379,10 @@ func TestLoadFiltersFromDb(t *testing.T) {
 	db, path := createFakeDB(t)
 	defer os.Remove(path)
 	defer db.Close()
+	var mainWg sync.WaitGroup
 
 	// Create our bloom master.
-	b, err := newBloomMaster(db, 2)
+	b, err := newBloomMaster(db, 2, &mainWg)
 	if err != nil {
 		t.Fatalf("Unable to create bloom master: %v", err)
 	}

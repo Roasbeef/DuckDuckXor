@@ -171,15 +171,15 @@ func (b *bloomMaster) Start() error {
 	}
 
 	if b.isFirstTime {
-		AddToWg(b.wg, b.mainWg, 1)
+		AddToWg(&b.wg, b.mainWg, 1)
 		go b.xFilterUploader()
 
 		for i := int32(0); i < b.numWorkers; i++ {
-			AddToWg(b.wg, b.mainWg, 1)
+			AddToWg(&b.wg, b.mainWg, 1)
 			go b.bloomWorker()
 		}
 
-		AddToWg(b.wg, b.mainWg, 1)
+		AddToWg(&b.wg, b.mainWg, 1)
 		go b.freqBloomSaver()
 	} else {
 
@@ -193,7 +193,7 @@ func (b *bloomMaster) Start() error {
 		}
 	}
 
-	b.wg.Add(1)
+	AddToWg(&b.wg, b.mainWg, 1)
 	go b.queryHandler()
 
 	return nil
@@ -256,7 +256,7 @@ out:
 			break out
 		}
 	}
-	WgDone(b.wg, b.mainWg)
+	WgDone(&b.wg, b.mainWg)
 }
 
 // TODO(roasbeef): Have each stage of pipeline take WG group.
@@ -287,7 +287,7 @@ out:
 			break out
 		}
 	}
-	WgDone(b.wg, b.mainWg)
+	WgDone(&b.wg, b.mainWg)
 }
 
 // xFilterUploader waits until it has been signaled that the X-Set has been
@@ -314,7 +314,7 @@ out:
 			break out
 		}
 	}
-	WgDone(b.wg, b.mainWg)
+	WgDone(&b.wg, b.mainWg)
 }
 
 // queryHandler handles bloom filter word frequency queries.
@@ -336,7 +336,7 @@ out:
 			break out
 		}
 	}
-	WgDone(b.wg, b.mainWg)
+	WgDone(&b.wg, b.mainWg)
 }
 
 // InitXSet sends a message indicating that the xSet filter should be created.

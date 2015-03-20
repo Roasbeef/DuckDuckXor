@@ -74,7 +74,7 @@ type EncryptedIndexGenerator struct {
 
 	closeOnce     sync.Once
 	closeXtagChan func()
-	mainWg        *sync.WaitGroup
+	mainWg        sync.WaitGroup
 	janitorWG     sync.WaitGroup
 
 	keyMap map[KeyType]*[keySize]byte
@@ -87,7 +87,7 @@ type EncryptedIndexGenerator struct {
 
 // NewEncryptedIndexGenerator creates and returns a new instance of the
 // EncryptedIndexGenerator.
-func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType]*[keySize]byte, bloom *bloomMaster, mainWg *sync.WaitGroup) (*EncryptedIndexGenerator, error) {
+func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType]*[keySize]byte, bloom *bloomMaster, mainWg sync.WaitGroup) (*EncryptedIndexGenerator, error) {
 	e := &EncryptedIndexGenerator{
 		quit:    make(chan struct{}),
 		counter: NewWordIndexCounter(),
@@ -115,21 +115,21 @@ func (e *EncryptedIndexGenerator) Start() error {
 		return nil
 	}
 	// Set up chan splitter
-	AddToWg(e.wg, e.mainWg, 1)
+	AddToWg(&e.wg, &e.mainWg, 1)
 	c1, c2 := e.chanSplitter()
 
 	for i := 0; i < e.numWorkers/2; i++ {
-		AddToWg(e.wg, e.mainWg, 1)
+		AddToWg(&e.wg, &e.mainWg, 1)
 		go e.xSetWorker(c1)
 	}
 
 	for i := 0; i < e.numWorkers/2; i++ {
-		AddToWg(e.wg, e.mainWg, 1)
-		AddToWg(e.janitorWG, e.mainWg, 1)
+		AddToWg(&e.wg, &e.mainWg, 1)
+		AddToWg(&e.janitorWG, &e.mainWg, 1)
 		go e.tSetWorker(c2)
 	}
 
-	AddToWg(e.wg, e.mainWg, 1)
+	AddToWg(&e.wg, &e.mainWg, 1)
 	go e.tSetJanitor()
 
 	return nil
@@ -166,7 +166,7 @@ func (e *EncryptedIndexGenerator) chanSplitter() (chan *InvIndexDocument, chan *
 		}
 		close(xSetChan)
 		close(tSetChan)
-		WgDone(e.wg, e.mainWg)
+		WgDone(&e.wg, &e.mainWg)
 	}()
 
 	return xSetChan, tSetChan
@@ -231,7 +231,7 @@ out:
 	// Signal the streamer that there aren't any more xTags, but do this
 	// AT MOST once.
 	e.closeOnce.Do(e.closeXtagChan)
-	WgDone(e.wg, e.mainWg)
+	WgDone(&e.wg, &e.mainWg)
 }
 
 // bloomStreamer is responsible for sending computed xTags off to the
@@ -252,7 +252,7 @@ out:
 			break out
 		}
 	}
-	WgDone(e.wg, e.mainWg)
+	WgDone(&e.wg, &e.mainWg)
 }
 
 // tSetWorker is responsible computing and sending off t-set tuples for each
@@ -322,8 +322,8 @@ out:
 			break out
 		}
 	}
-	e.janitorWG.Done()
-	WgDone(e.wg, e.mainWg)
+	WgDone(&e.janitorWG, &e.mainWg)
+	WgDone(&e.wg, &e.mainWg)
 }
 
 // tSetJanitor...
@@ -380,7 +380,7 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 	}
 
 	tSetStream.CloseSend()
-	WgDone(e.wg, e.mainWg)
+	WgDone(&e.wg, &e.mainWg)
 }
 
 // computeBlindingValue computes the blinding value used for blinded

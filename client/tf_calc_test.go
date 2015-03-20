@@ -12,6 +12,7 @@ import (
 // is already working correctly
 
 func TestFrequencyWorker(t *testing.T) {
+	var wg sync.WaitGroup
 	corpusreader := NewCorpusReader("./test_directory/", nil)
 	corpusreader.Start()
 	terms := make(chan []string, 2)
@@ -32,7 +33,7 @@ out:
 			b.Reset()
 		}
 	}
-	tf := NewTermFrequencyCalculator(1, terms, nil, nil)
+	tf := NewTermFrequencyCalculator(1, terms, nil, nil, &wg)
 	tf.wg.Add(1)
 	go tf.frequencyWorker()
 	m1 := <-tf.TermFreq
@@ -47,13 +48,14 @@ out:
 
 func TestShuffler(t *testing.T) {
 
+	var mainWg sync.WaitGroup
 	var wg sync.WaitGroup
 	fmt.Printf("testing shuffler\n")
 	a := make(map[string]int)
 	a["hello"] = 5
 	a["goodbye"] = 4
 	a["golly"] = 3
-	tf := NewTermFrequencyCalculator(1, nil, nil, nil)
+	tf := NewTermFrequencyCalculator(1, nil, nil, nil, &mainWg)
 	tf.initShufflers()
 	tf.TermFreq <- a
 	wg.Add(3)
@@ -86,6 +88,7 @@ func TestShuffler(t *testing.T) {
 
 func TestReducer(t *testing.T) {
 	fmt.Printf("starting reducer test\n")
+	var wg sync.WaitGroup
 	a := make(map[string]int)
 	b := make(map[string]int)
 	a["hello"] = 500
@@ -93,7 +96,7 @@ func TestReducer(t *testing.T) {
 	a["golly"] = 3
 	b["golly"] = 6
 	b["camel"] = 54
-	tf := NewTermFrequencyCalculator(1, nil, nil, nil)
+	tf := NewTermFrequencyCalculator(1, nil, nil, nil, &wg)
 	tf.initShufflers()
 	tf.initReducers()
 	tf.TermFreq <- a

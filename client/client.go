@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha1"
+	"encoding/binary"
 	"flag"
 	"io"
 	"log"
@@ -35,7 +37,16 @@ func init() {
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	conn, err := grpc.Dial(*serverAddr)
+	if err != nil {
+		//TODO handle error
 
+	}
+	client := pb.NewEncryptedSearchClient(conn)
+	metaAck, err := client.UploadMetaData(context.Background(), &pb.MetaData{4, 28})
+	if metaAck.Ack != true || err != nil {
+
+	}
 	//read config file
 	db, err := bolt.Open("~/.DuckDuckXor/ddx.db", 0600, nil)
 	if err != nil {
@@ -184,7 +195,13 @@ func (c *clientDaemon) encryptQuery(s string) []byte {
 }
 
 func decryptDocInfo(eDoc *pb.EncryptedDocInfo) *pb.DocInfo {
-	return &pb.DocInfo{0}
+	//TODO later on this will actually decrypt
+	buf := bytes.NewBuffer(eDoc.EncryptedId)
+	val, err := binary.ReadVarint(buf)
+	if err != nil {
+
+	}
+	return &pb.DocInfo{uint32(val)}
 
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/elliptic"
 	"encoding/binary"
+	"fmt"
 	"hash"
 	"io"
 	"math/big"
@@ -28,8 +29,8 @@ type indexDocPair struct {
 	lastId uint32
 }
 
-// NewWordIndexCounter creates and returns a new instance of the counter.
-func NewWordIndexCounter() *wordIndexCounter {
+// newWordIndexCounter creates and returns a new instance of the counter.
+func newWordIndexCounter() *wordIndexCounter {
 	return &wordIndexCounter{wordCounter: make(map[string]*indexDocPair)}
 }
 
@@ -76,7 +77,7 @@ type EncryptedIndexGenerator struct {
 
 	janitorWG sync.WaitGroup
 
-	keyMap map[KeyType]*[keySize]byte
+	keyMap map[KeyType][keySize]byte
 
 	counter *wordIndexCounter
 	bloom   *bloomMaster
@@ -86,10 +87,10 @@ type EncryptedIndexGenerator struct {
 
 // NewEncryptedIndexGenerator creates and returns a new instance of the
 // EncryptedIndexGenerator.
-func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType]*[keySize]byte, bloom *bloomMaster) (*EncryptedIndexGenerator, error) {
+func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorkers int, keyMap map[KeyType][keySize]byte, bloom *bloomMaster, client pb.EncryptedSearchClient) *EncryptedIndexGenerator {
 	e := &EncryptedIndexGenerator{
 		quit:    make(chan struct{}),
-		counter: NewWordIndexCounter(),
+		counter: newWordIndexCounter(),
 		// TODO(roasbeef): buffer?
 		finishedXtags:     make(chan []xTag),
 		incomingDocuments: invertedIndexes,
@@ -97,6 +98,7 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 		curve:             elliptic.P224(),
 		numWorkers:        numWorkers,
 		bloom:             bloom,
+		client:            client,
 	}
 	var once sync.Once
 	e.closeOnce = once
@@ -104,7 +106,7 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 		close(e.finishedXtags)
 	}
 
-	return e, nil
+	return e
 }
 
 // Start kicks off the generator, spawning helper goroutines before returning.
@@ -181,7 +183,7 @@ func (e *EncryptedIndexGenerator) xSetWorker(workChan chan *InvIndexDocument) {
 	xTagKey := e.keyMap[XTagKey]
 	xTagPRF, _ := cmac.New(xTagKey[:])
 
-	indBytes := make([]byte, 16)
+	indBytes := make([]byte, 4)
 	indBuf := bytes.NewBuffer(indBytes)
 out:
 	for {
@@ -191,13 +193,14 @@ out:
 				break out
 			}
 			// TODO(roasbeef): re-use buffer?
-			xTags := make([]xTag, len(index.Words))
+			xTags := make([]xTag, 0, len(index.Words))
 			for word, _ := range index.Words {
 				// xind = F_p(K_i, ind)
 				binary.Write(indBuf, binary.BigEndian, index.DocId)
 				_, err := io.Copy(xIndPRF, indBuf)
 				if err != nil {
 					// TODO(roasbeef): hook up errs
+					fmt.Println("ERROR: %v", err)
 				}
 				xind := xIndPRF.Sum(nil)
 
@@ -254,13 +257,13 @@ out:
 }
 
 // tSetWorker is responsible computing and sending off t-set tuples for each
-// unique word per document recieved. This entails computing the proper t-set
-// bucket and label for a tuple, it's blinding value for conjunctive queries,
+// unique word per document recieved. This entails computing the proper t-set // bucket and label for a tuple, it's blinding value for conjunctive queries,
 // and permuting the document ID, unique for each word.
 func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
 	tSetStream, err := e.client.UploadTSet(context.Background())
 	if err != nil {
 		// TODO(roasbeef): Handle err
+		fmt.Println("TSET ERROR: %v", err)
 	}
 
 	// TODO(roasbeef): Cache these values amongst workers?
@@ -280,7 +283,7 @@ out:
 		select {
 		case index, more := <-workChan:
 			if !more {
-				tSetStream.CloseSend()
+				tSetStream.CloseAndRecv()
 				break out
 			}
 
@@ -309,6 +312,7 @@ out:
 				if err := tSetStream.Send(tSetShard); err != nil {
 					// log.Fatalf("Failed to send a doc: %v", err)
 					// TODO(roasbeef): handle errs
+					fmt.Println("TSET ERROR: %v", err)
 				}
 			}
 
@@ -377,7 +381,7 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 		xIndPRF.Reset()
 	}
 
-	tSetStream.CloseSend()
+	tSetStream.CloseAndRecv()
 	e.wg.Done()
 }
 

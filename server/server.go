@@ -88,6 +88,7 @@ func (e *encryptedSearchServer) KeywordSearch(query *pb.KeywordQuery, stream pb.
 
 	// Read responses one by one off the channel, then sending them down
 	// the client stream.
+	// TODO(roasbeef): Non-existant keyword.
 	for resp := range respStream {
 		if err := stream.Send(&pb.EncryptedDocInfo{EncryptedId: resp.eId}); err != nil {
 			cancelSearch <- struct{}{}

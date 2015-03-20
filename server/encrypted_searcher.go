@@ -306,13 +306,20 @@ out:
 				// until we reach the end of the inverted index
 				// for this stag.
 				for _, t := range batchResults {
-					if !t.isLast {
-						fmt.Println("sending resp")
+					if t.eId == nil {
+						close(respChan)
+						goto top
+						continue
+					}
+
+					if t.isLast {
+						fmt.Println("sending last")
 						respChan <- t
-					} else {
 						close(respChan)
 						goto top
 					}
+					fmt.Println("sending resp")
+					respChan <- t
 				}
 
 				i += searchChunkSize
@@ -334,9 +341,16 @@ func (e *encryptedIndexSearcher) tupleFetcher(stag []byte, index uint32, outChan
 
 		// Grab the bucket for this tuple.
 		fragmentBucket := rootBucket.Bucket(bucket[:])
+		if fragmentBucket == nil {
+			return nil
+		}
+
+		encryptedTuple := fragmentBucket.Get(label[:])
+		if encryptedTuple == nil {
+			return nil
+		}
 
 		// Decrypt the tuple using it's one-time-pad.
-		encryptedTuple := fragmentBucket.Get(label[:])
 		decryptedTuple := crypto.XorBytes(otp[:], encryptedTuple)
 
 		// Signal if this is the last element.

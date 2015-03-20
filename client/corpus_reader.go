@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -87,6 +88,7 @@ out:
 			}
 			d := &document{File: f, DocId: c.NextDocId()}
 			docOut <- d
+			fmt.Println("sent off doc", d)
 		}
 	}
 
@@ -101,6 +103,7 @@ func (c *CorpusReader) DirectoryWalker(outPaths chan string, rootDir string) err
 	filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
 			outPaths <- path
+			fmt.Println("sent off file", path)
 
 		}
 		return nil

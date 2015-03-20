@@ -40,6 +40,7 @@ func (e *encryptedSearchServer) UploadMetaData(ctx context.Context, mData *pb.Me
 }
 
 func (e *encryptedSearchServer) UploadTSet(stream pb.EncryptedSearch_UploadTSetServer) error {
+	fmt.Println("got uplaod tset req")
 	for {
 		tTuple, err := stream.Recv()
 		if err == io.EOF {
@@ -48,6 +49,7 @@ func (e *encryptedSearchServer) UploadTSet(stream pb.EncryptedSearch_UploadTSetS
 			})
 		}
 
+		fmt.Println("putting frag serv", tTuple)
 		e.encryptedIndex.PutTsetFragment(tTuple)
 	}
 }
@@ -55,6 +57,7 @@ func (e *encryptedSearchServer) UploadTSet(stream pb.EncryptedSearch_UploadTSetS
 // UploadXSetFilter loads the client-side created xSet bloom filter into memory
 // and the database.
 func (e *encryptedSearchServer) UploadXSetFilter(ctx context.Context, xFilter *pb.XSetFilter) (*pb.FilterAck, error) {
+	fmt.Println("got uplaod xset, ", xFilter)
 	e.encryptedIndex.PutXSetFilter(xFilter)
 	return &pb.FilterAck{Ack: true}, nil
 }
@@ -62,6 +65,7 @@ func (e *encryptedSearchServer) UploadXSetFilter(ctx context.Context, xFilter *p
 // UploadCipherDocs implements a client streaming RPC for storing encrypted
 // documents on the server.
 func (e *encryptedSearchServer) UploadCipherDocs(stream pb.EncryptedSearch_UploadCipherDocsServer) error {
+	fmt.Println("reading cipher docs")
 	for {
 		doc, err := stream.Recv()
 		if err == io.EOF || doc == nil {
@@ -71,6 +75,7 @@ func (e *encryptedSearchServer) UploadCipherDocs(stream pb.EncryptedSearch_Uploa
 			})
 		}
 
+		fmt.Println("putting doc", doc)
 		e.docStore.PutDoc(doc)
 	}
 }

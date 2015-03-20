@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/elliptic"
 	"encoding/binary"
+	"fmt"
 	"hash"
 	"io"
 	"math/big"
@@ -47,7 +48,6 @@ func (w *wordIndexCounter) readThenIncrement(term string, docId uint32) uint32 {
 	}
 
 	c := pair.count
-
 	pair.count++
 	pair.lastId = docId
 
@@ -84,6 +84,8 @@ type EncryptedIndexGenerator struct {
 	curve   elliptic.Curve
 
 	abort func(chan struct{}, error)
+
+	pendingXSends int32
 }
 
 // NewEncryptedIndexGenerator creates and returns a new instance of the
@@ -105,7 +107,17 @@ func NewEncryptedIndexGenerator(invertedIndexes chan *InvIndexDocument, numWorke
 	var once sync.Once
 	e.closeOnce = once
 	e.closeXtagChan = func() {
-		close(e.finishedXtags)
+		go func() {
+			fmt.Println("bouta wait for x chan")
+			for {
+				fmt.Println("waiting for pending sends to close")
+				if atomic.LoadInt32(&e.pendingXSends) == 0 {
+					break
+				}
+			}
+			fmt.Println("closing xset chan")
+			close(e.finishedXtags)
+		}()
 	}
 
 	return e
@@ -117,21 +129,32 @@ func (e *EncryptedIndexGenerator) Start() error {
 		return nil
 	}
 	// Set up chan splitter
-	AddToWg(&e.wg, e.mainWg, 1)
+	fmt.Println("adding to WaitGroup enc_ind")
+AddToWg(&e.wg, e.mainWg, 1)
 	c1, c2 := e.chanSplitter()
 
-	for i := 0; i < e.numWorkers/2; i++ {
-		AddToWg(&e.wg, e.mainWg, 1)
+	//for i := 0; i < e.numWorkers/2; i++ {
+	for i := 0; i < e.numWorkers; i++ {
+		fmt.Println("adding to WaitGroup enc_ind")
+AddToWg(&e.wg, e.mainWg, 1)
 		go e.xSetWorker(c1)
 	}
 
-	for i := 0; i < e.numWorkers/2; i++ {
-		AddToWg(&e.wg, e.mainWg, 1)
-		AddToWg(&e.janitorWG, e.mainWg, 1)
+	//for i := 0; i < e.numWorkers/2; i++ {
+	for i := 0; i < e.numWorkers; i++ {
+		fmt.Println("adding to WaitGroup enc_ind")
+AddToWg(&e.wg, e.mainWg, 1)
+		fmt.Println("adding to WaitGroup enc_ind")
+AddToWg(&e.janitorWG, e.mainWg, 1)
 		go e.tSetWorker(c2)
 	}
 
-	AddToWg(&e.wg, e.mainWg, 1)
+	fmt.Println("adding to WaitGroup enc_ind")
+AddToWg(&e.wg, e.mainWg, 1)
+	go e.bloomStreamer()
+
+	fmt.Println("adding to WaitGroup enc_ind")
+AddToWg(&e.wg, e.mainWg, 1)
 	go e.tSetJanitor()
 
 	return nil
@@ -160,15 +183,20 @@ func (e *EncryptedIndexGenerator) chanSplitter() (chan *InvIndexDocument, chan *
 				if !more {
 					break out
 				}
+				fmt.Println("spliter sending x")
 				xSetChan <- docIndex
+				fmt.Println("spliter sent x")
+				fmt.Println("spliter sending t")
 				tSetChan <- docIndex
+				fmt.Println("spliter sent t")
 			case <-e.quit:
 				break out
 			}
 		}
 		close(xSetChan)
 		close(tSetChan)
-		WgDone(&e.wg, e.mainWg)
+		fmt.Println("subtracting from WaitGroup enc_ind")
+WgDone(&e.wg, e.mainWg)
 	}()
 
 	return xSetChan, tSetChan
@@ -178,6 +206,7 @@ func (e *EncryptedIndexGenerator) chanSplitter() (chan *InvIndexDocument, chan *
 // unique word in incoming document. These xTags are then so they can be sent
 // off downstream to be added to the final xSet bloom filter.
 func (e *EncryptedIndexGenerator) xSetWorker(workChan chan *InvIndexDocument) {
+	fmt.Println("x worker start")
 	xIndKey := e.keyMap[XIndKey]
 	xIndPRF, _ := cmac.New(xIndKey[:])
 
@@ -191,6 +220,7 @@ out:
 	for {
 		select {
 		case index, more := <-workChan:
+			fmt.Println("XSETW:  got index doc", index)
 			if !more {
 				break out
 			}
@@ -218,8 +248,13 @@ out:
 				xTags = append(xTags, serialziedPoint)
 			}
 
+			atomic.AddInt32(&e.pendingXSends, 1)
 			go func() {
+				fmt.Println("XSETW:  sending", xTags)
+				e.bloom.WaitForXSetInit()
 				e.finishedXtags <- xTags
+				atomic.AddInt32(&e.pendingXSends, -1)
+				fmt.Println("XSETW:  sent", xTags)
 			}()
 
 			indBuf.Reset()
@@ -233,7 +268,8 @@ out:
 	// Signal the streamer that there aren't any more xTags, but do this
 	// AT MOST once.
 	e.closeOnce.Do(e.closeXtagChan)
-	WgDone(&e.wg, e.mainWg)
+	fmt.Println("subtracting from WaitGroup enc_ind")
+WgDone(&e.wg, e.mainWg)
 }
 
 // bloomStreamer is responsible for sending computed xTags off to the
@@ -241,11 +277,14 @@ out:
 // to the search server.
 func (e *EncryptedIndexGenerator) bloomStreamer() {
 	// Block until the X-Set bloom filter has been created.
+	fmt.Println("e streamer waiting")
 	e.bloom.WaitForXSetInit()
+	fmt.Println("e stream started")
 out:
 	for {
 		select {
 		case xtags, more := <-e.finishedXtags:
+			fmt.Println("BLOOMSTREM: sending xtags", xtags)
 			if !more {
 				break out
 			}
@@ -254,13 +293,15 @@ out:
 			break out
 		}
 	}
-	WgDone(&e.wg, e.mainWg)
+	fmt.Println("subtracting from WaitGroup enc_ind")
+WgDone(&e.wg, e.mainWg)
 }
 
 // tSetWorker is responsible computing and sending off t-set tuples for each
 // unique word per document recieved. This entails computing the proper t-set // bucket and label for a tuple, it's blinding value for conjunctive queries,
 // and permuting the document ID, unique for each word.
 func (e *EncryptedIndexGenerator) tSetWorker(workChan chan *InvIndexDocument) {
+	fmt.Println("t worker start")
 	tSetStream, err := e.client.UploadTSet(context.Background())
 	if err != nil {
 		e.abort(e.quit, err)
@@ -282,6 +323,7 @@ out:
 	for {
 		select {
 		case index, more := <-workChan:
+			fmt.Println("TSETW : got index ", index)
 			if !more {
 				tSetStream.CloseAndRecv()
 				break out
@@ -309,6 +351,7 @@ out:
 				// then (e, y)
 				tSetShard := calcTsetTuple(sTagPRF, word, docCounter, eId, y, false)
 
+				fmt.Println("TSETW : sending shard", tSetShard)
 				if err := tSetStream.Send(tSetShard); err != nil {
 					e.abort(e.quit, err)
 				}
@@ -322,13 +365,17 @@ out:
 			break out
 		}
 	}
-	WgDone(&e.janitorWG, e.mainWg)
-	WgDone(&e.wg, e.mainWg)
+	fmt.Println("subtracting from WaitGroup enc_ind")
+WgDone(&e.janitorWG, e.mainWg)
+	fmt.Println("subtracting from WaitGroup enc_ind")
+WgDone(&e.wg, e.mainWg)
 }
 
 // tSetJanitor...
 func (e *EncryptedIndexGenerator) tSetJanitor() {
+	fmt.Println("janitor waiting")
 	e.janitorWG.Wait()
+	fmt.Println("janitor started")
 	tSetStream, err := e.client.UploadTSet(context.Background())
 	if err != nil {
 		e.abort(e.quit, err)
@@ -348,6 +395,7 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 
 	// TODO(roasbeef): WAYY to redundant need to clean up.
 	for word, pair := range e.counter.wordCounter {
+		fmt.Println("janitor sending B for: ", word, pair)
 		blindCounter := pair.count
 		docIndex := pair.count + 1
 		docId := pair.lastId
@@ -377,9 +425,11 @@ func (e *EncryptedIndexGenerator) tSetJanitor() {
 		blindPRF.Reset()
 		xIndPRF.Reset()
 	}
-
+	fmt.Println("closing and recieving")
 	tSetStream.CloseAndRecv()
-	WgDone(&e.wg, e.mainWg)
+	fmt.Println("closed and recieved")
+	fmt.Println("subtracting from WaitGroup enc_ind")
+WgDone(&e.wg, e.mainWg)
 }
 
 // computeBlindingValue computes the blinding value used for blinded

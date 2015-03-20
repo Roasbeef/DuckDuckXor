@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"hash/fnv"
 	"sync"
 	"sync/atomic"
@@ -83,6 +84,7 @@ func (t *TermFrequencyCalculator) Start() error {
 	t.initReducers()
 	//TODO after initializing bloom filters, wait for info
 	//from lalu stating that the buckets are created
+	fmt.Println("adding to WaitGroup tfcalc")
 AddToWg(&t.wg, t.mainWg, 2)
 	go t.populateBloomFilters()
 	go t.bloomFilterInitializer()
@@ -102,21 +104,24 @@ func (t *TermFrequencyCalculator) Stop() error {
 
 func (t *TermFrequencyCalculator) initMappers() {
 	for i := uint32(0); i < t.numWorkers; i++ {
-		AddToWg(&t.wg, t.mainWg, 1)
+		fmt.Println("adding to WaitGroup tfcalc")
+AddToWg(&t.wg, t.mainWg, 1)
 		go t.frequencyWorker()
 	}
 }
 
 func (t *TermFrequencyCalculator) initReducers() {
 	for i := uint32(0); i < t.numReducers; i++ {
-		AddToWg(&t.wg, t.mainWg, 1)
+		fmt.Println("adding to WaitGroup tfcalc")
+AddToWg(&t.wg, t.mainWg, 1)
 		go t.reducer(i)
 	}
 }
 
 func (t *TermFrequencyCalculator) initShufflers() {
 	for i := uint32(0); i < t.numReducers; i++ {
-		AddToWg(&t.wg, t.mainWg, 1)
+		fmt.Println("adding to WaitGroup tfcalc")
+AddToWg(&t.wg, t.mainWg, 1)
 		t.shufflerChan <- struct{}{}
 		go t.shuffler()
 	}
@@ -133,6 +138,7 @@ out:
 		case <-t.quit:
 			break out
 		case doc, ok := <-t.docIn:
+			//fmt.Println("freq worker got doc ", doc)
 			m := make(map[string]int)
 			if !ok {
 				break out
@@ -144,7 +150,8 @@ out:
 		}
 	}
 	t.mapperOnce.Do(func() { close(t.TermFreq) })
-	WgDone(&t.wg, t.mainWg)
+	fmt.Println("subtracting from WaitGroup tfcalc")
+WgDone(&t.wg, t.mainWg)
 }
 
 func (t *TermFrequencyCalculator) shuffler() {
@@ -158,6 +165,7 @@ out:
 				break out
 			}
 			for key, val := range doc {
+				//fmt.Println("shuffler sending off ", key, val)
 				hashValue := Hash(key)
 				hashValue = hashValue % t.numReducers
 				t.reduceMap[hashValue] <- wordPair{key, val}
@@ -169,7 +177,8 @@ out:
 	if len(t.shufflerChan) == 0 {
 		t.shufflerOnce.Do(func() { close(t.reducerQuit) })
 	}
-	WgDone(&t.wg, t.mainWg)
+	fmt.Println("subtracting from WaitGroup tfcalc")
+WgDone(&t.wg, t.mainWg)
 }
 
 func Hash(s string) uint32 {
@@ -184,19 +193,23 @@ func (t *TermFrequencyCalculator) reducer(key uint32) {
 	subSet := make(map[string]int)
 out:
 	for {
+		//fmt.Println("I'm in an infinite loop!")
 		select {
 		case <-t.quit:
 			break out
 		case val := <-input:
+			//fmt.Println("reducer got ", val)
 			//TODO why am I doing this count?
 			subSet[val.key] += val.tf
 		case <-t.reducerQuit:
+			fmt.Printf("reducer quiting\n")
 			break out
 		}
 	}
-
 	bloomFilterVals := t.calculateBucketSizes(subSet)
+	fmt.Println("reducer sending bucket size", bloomFilterVals)
 	t.bloomSizeChan <- bloomFilterVals
+	fmt.Println("subtracting from WaitGroup tfcalc")
 WgDone(&t.wg, t.mainWg)
 
 }
@@ -208,6 +221,7 @@ out:
 	for {
 		select {
 		case a := <-t.bloomSizeChan:
+			fmt.Println("FREQ got bloom update", a)
 			sem--
 			b[Below100] += a.ltHunredbucketSize
 			b[Below1000] += a.ltOneKbucketSize
@@ -221,14 +235,17 @@ out:
 		}
 	}
 	close(t.bloomSizeChan)
+	fmt.Println("init bucket bloom freq", b)
 	t.bloomFilterManager.InitFreqBuckets(b)
 
+	fmt.Println("subtracting from WaitGroup tfcalc")
 WgDone(&t.wg, t.mainWg)
 }
 
 func (t *TermFrequencyCalculator) calculateBucketSizes(resultMap map[string]int) bucketVals {
 	//this function does not need parallelization, since the number of words in the english language is constant
 	var b bucketVals
+	fmt.Println("calculating bucket size")
 	for _, size := range resultMap {
 		switch {
 		case size < 100:
@@ -247,7 +264,9 @@ func (t *TermFrequencyCalculator) calculateBucketSizes(resultMap map[string]int)
 
 func (t *TermFrequencyCalculator) populateBloomFilters() {
 	// Block and wait until the bloom filters have been created.
+	fmt.Println("waiting for bloom freq init")
 	t.bloomFilterManager.WaitForBloomFreqInit()
+	fmt.Println("freq init done")
 
 	//while this approach is kind of verbose, it avoids the expense
 	//of millions of allocations
@@ -307,5 +326,6 @@ func (t *TermFrequencyCalculator) populateBloomFilters() {
 	t.bloomFilterManager.QueueFreqBucketAdd(Below10000, ltTenKSlice)
 	t.bloomFilterManager.QueueFreqBucketAdd(Below100000, ltHundredKSlice)
 
+	fmt.Println("subtracting from WaitGroup tfcalc")
 WgDone(&t.wg, t.mainWg)
 }

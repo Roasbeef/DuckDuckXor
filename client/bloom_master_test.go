@@ -39,7 +39,8 @@ func TestQueryWordFrequency(t *testing.T) {
 	b.bloomFreqBuckets[Below100].Add([]byte("cool"))
 
 	// Launch our query handler.
-	AddToWg(&b.wg, &mainWg, 1)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&b.wg, &mainWg, 1)
 	go b.queryHandler()
 
 	// Test some queries.
@@ -79,11 +80,13 @@ func TestFreqBucketAdd(t *testing.T) {
 	b.fullBucketSize[Below100] = 5
 
 	// Launch two bloom workers.
-	AddToWg(&b.wg, &mainWg, 2)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&b.wg, &mainWg, 2)
 	go b.bloomWorker()
 	go b.bloomWorker()
 
-	AddToWg(&b.wg, &mainWg, 1)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&b.wg, &mainWg, 1)
 	go b.queryHandler()
 
 	var wg sync.WaitGroup
@@ -129,7 +132,8 @@ func TestFreqBucketInitAndSigal(t *testing.T) {
 	}
 
 	// Launch two bloom workers.
-	AddToWg(&b.wg, &mainWg, 2)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&b.wg, &mainWg, 2)
 	go b.bloomWorker()
 	go b.bloomWorker()
 
@@ -190,7 +194,8 @@ func TestXSetAdd(t *testing.T) {
 	b.xFinalSize = 4
 
 	// Create some bloom workers.
-	AddToWg(&b.wg, &mainWg, 2)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&b.wg, &mainWg, 2)
 	go b.bloomWorker()
 	go b.bloomWorker()
 
@@ -235,7 +240,8 @@ func TestXSetInit(t *testing.T) {
 	}
 
 	// Launch two bloom workers.
-	AddToWg(&b.wg, &mainWg, 2)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&b.wg, &mainWg, 2)
 	go b.bloomWorker()
 	go b.bloomWorker()
 
@@ -290,7 +296,8 @@ func TestFreqBloomSaver(t *testing.T) {
 	}
 
 	// Launch the bloom saver.
-	AddToWg(&b.wg, &mainWg, 1)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&b.wg, &mainWg, 1)
 	go b.freqBloomSaver()
 
 	bloomSizes := []uint{100, 50, 90, 10}

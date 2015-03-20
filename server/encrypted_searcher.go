@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
+	"fmt"
 	"runtime"
 	"sort"
 	"sync"
@@ -130,6 +131,7 @@ func (e *encryptedIndexSearcher) Stop() error {
 
 // LoadXSetFilter...
 func (e *encryptedIndexSearcher) PutXSetFilter(xf *pb.XSetFilter) {
+	fmt.Println("Writin xSet filter.")
 	// Deserialize the xSet bloom filter and load it into memory.
 	filterbuf := bytes.NewBuffer(xf.BloomFilter)
 	err := gob.NewDecoder(filterbuf).Decode(e.xSet)
@@ -161,6 +163,7 @@ func (e *encryptedIndexSearcher) PutXSetFilter(xf *pb.XSetFilter) {
 // loadXSetFilterFromDb retrieves and deserializes a stored x-set bloom filter
 // before loading it into memory.
 func (e *encryptedIndexSearcher) loadXSetFilterFromDb() error {
+	fmt.Println("loading xSet filter.")
 	return e.db.View(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(indexBucketKey)
 		if err != nil {
@@ -185,6 +188,7 @@ func (e *encryptedIndexSearcher) loadXSetFilterFromDb() error {
 
 // LoadTSetMetaData loads metadata about the tSet into memory.
 func (e *encryptedIndexSearcher) LoadTSetMetaData(mData *pb.MetaData) {
+	fmt.Println("loading meta data.")
 	e.tSetMetaData = mData
 	if !e.isMetaLoaded {
 		close(e.metaDataRecived)
@@ -204,6 +208,7 @@ func (e *encryptedIndexSearcher) PutTsetFragment(tuple *pb.TSetFragment) {
 		return
 	}
 
+	fmt.Println("sending off tset fra")
 	req := &tSetWriteReq{tuple}
 	e.tWriteReqs <- req
 }
@@ -217,6 +222,7 @@ out:
 		case <-e.quit:
 			break out
 		case tFragment := <-e.tWriteReqs:
+			fmt.Println("got t set frag, writing")
 			targetBucket := tFragment.t.Bucket
 			targetLabel := tFragment.t.Label
 			tupleData := tFragment.t.Data
@@ -242,6 +248,7 @@ out:
 			})
 			if err != nil {
 				//TODO(roasbeef): error
+				fmt.Println("ERORR IN T: ", err)
 			}
 		}
 	}
@@ -250,6 +257,7 @@ out:
 
 // TSetSearch...
 func (e *encryptedIndexSearcher) TSetSearch(stag []byte) (chan *tupleData, chan struct{}) {
+	fmt.Println("executing search")
 	resp := make(chan *tupleData, searchChunkSize)
 	cancel := make(chan struct{}, 1)
 	req := &tSetReadReq{sTag: stag, resps: resp, cancel: cancel}
@@ -299,6 +307,7 @@ out:
 				// for this stag.
 				for _, t := range batchResults {
 					if !t.isLast {
+						fmt.Println("sending resp")
 						respChan <- t
 					} else {
 						close(respChan)

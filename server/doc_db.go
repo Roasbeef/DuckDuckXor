@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -96,6 +97,7 @@ out:
 		case <-d.quit:
 			break out
 		case req := <-d.readRequests:
+			fmt.Println("got read req", req)
 			// Convert the uint32 doc id into bytes for retrieval by
 			// key.
 			binary.LittleEndian.PutUint32(docKeyBuf, req.docId)
@@ -150,6 +152,7 @@ out:
 		case <-d.quit:
 			break out
 		case req := <-d.writeRequests:
+			fmt.Println("got write req", req)
 			// Convert the uint32 doc id into bytes for storage by key.
 			binary.LittleEndian.PutUint32(docKeyBuf, req.doc.DocId)
 
@@ -167,7 +170,9 @@ out:
 				return nil
 			})
 
+			fmt.Println("fin write")
 			if err != nil {
+				fmt.Println("WRITE ERR: %v", err)
 				// TODO(roasbeef): Handle write errors over stream?
 				//req.err <- err
 			}

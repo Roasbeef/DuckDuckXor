@@ -21,17 +21,17 @@ type Doc struct {
 }
 
 type DocPreprocessor struct {
-	quit          chan struct{}
-	started       int32
-	shutdown      int32
-	abort         func(chan struct{}, error)
-	docNames      chan Doc
-	TfOut         chan []string
-	InvIndexOut   chan *InvIndexDocument
-	DocEncryptOut chan *document
-	XsetGenOut    chan *InvIndexDocument
-	input         chan *document
-	wg            sync.WaitGroup
+	quit             chan struct{}
+	started          int32
+	shutdown         int32
+	abort            func(chan struct{}, error)
+	docNames         chan Doc
+	TfOut            chan []string
+	InvIndexOut      chan *InvIndexDocument
+	KeyWordSummerOut chan *InvIndexDocument
+	DocEncryptOut    chan *document
+	input            chan *document
+	wg               sync.WaitGroup
 }
 
 func NewDocPreprocessor(inp chan *document, e func(chan struct{}, error)) *DocPreprocessor {
@@ -39,17 +39,17 @@ func NewDocPreprocessor(inp chan *document, e func(chan struct{}, error)) *DocPr
 	//channels have buffer of size one in case of errors
 	d := make(chan *document, 1)
 	i := make(chan *InvIndexDocument, 1)
-	x := make(chan *InvIndexDocument, 1)
+	k := make(chan *InvIndexDocument, 1)
 	t := make(chan []string, 1)
 	return &DocPreprocessor{
-		quit:          q,
-		TfOut:         t,
-		InvIndexOut:   i,
-		DocEncryptOut: d,
-		docNames:      make(chan Doc),
-		XsetGenOut:    x,
-		input:         inp,
-		abort:         e,
+		quit:             q,
+		TfOut:            t,
+		InvIndexOut:      i,
+		DocEncryptOut:    d,
+		KeyWordSummerOut: k,
+		docNames:         make(chan Doc),
+		input:            inp,
+		abort:            e,
 	}
 }
 
@@ -82,10 +82,11 @@ out:
 		case <-d.quit:
 			break out
 		case doc, ok := <-d.input:
+			fmt.Println("PRE: got doc", doc)
 			if !ok {
 				break out
 			}
-			d.docNames <- Doc{doc.Name(), doc.DocId}
+			//d.docNames <- Doc{doc.Name(), doc.DocId}
 			invIndexMap := make(map[string]struct{})
 			_, err := io.Copy(b, doc)
 			if err != nil {
@@ -98,16 +99,19 @@ out:
 
 			InvIndDoc := &InvIndexDocument{invIndexMap, doc.DocId}
 			d.TfOut <- parsedTFWords
+			fmt.Println("sent to term freq")
 			d.InvIndexOut <- InvIndDoc
+			d.KeyWordSummerOut <- InvIndDoc
+			fmt.Println("sent to inv index")
 			d.DocEncryptOut <- doc
-			d.XsetGenOut <- InvIndDoc
+			fmt.Println("sent to doc enc")
 			b.Reset()
 		}
 	}
 	close(d.TfOut)
 	close(d.InvIndexOut)
 	close(d.DocEncryptOut)
-	close(d.XsetGenOut)
+	close(d.KeyWordSummerOut)
 	d.wg.Done()
 
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -24,7 +25,7 @@ type EncryptedDocStreamer struct {
 	encryptedDocs chan *encryptedDoc
 	docStream     chan *document
 
-	numWorkers int32
+	numWorkers int
 	client     pb.EncryptedSearchClient
 
 	started  int32
@@ -36,7 +37,7 @@ type EncryptedDocStreamer struct {
 }
 
 // NewEncryptedDocStreamer creates a new EncryptedDocStreamer.
-func NewEncryptedDocStreamer(numWorkers int32, docKey *[keySize]byte, docStream chan *document, client pb.EncryptedSearchClient, abort func(chan struct{}, error)) *EncryptedDocStreamer {
+func NewEncryptedDocStreamer(numWorkers int, docKey *[keySize]byte, docStream chan *document, client pb.EncryptedSearchClient, abort func(chan struct{}, error)) *EncryptedDocStreamer {
 	q := make(chan struct{})
 	return &EncryptedDocStreamer{
 		docKey:        snacl.CryptoKey(*docKey),
@@ -55,7 +56,7 @@ func (e *EncryptedDocStreamer) Start() error {
 		return nil
 	}
 
-	for i := int32(0); i < e.numWorkers; i++ {
+	for i := 0; i < e.numWorkers; i++ {
 		e.wg.Add(1)
 		go e.docEncrypter()
 	}
@@ -84,6 +85,7 @@ out:
 	for {
 		select {
 		case doc, more := <-e.docStream:
+			fmt.Println("EDOC: got doc", doc)
 			if !more {
 				break out
 			}
@@ -139,6 +141,7 @@ out:
 				EncryptedDoc: doc.cipherText,
 			}
 
+			fmt.Println("EDOC: sending doc to server", cipherDoc)
 			if err := cipherStream.Send(cipherDoc); err != nil {
 				e.abort(e.quit, err)
 			}

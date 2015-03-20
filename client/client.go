@@ -20,13 +20,13 @@ import (
 var (
 	tls = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 
-	serverAddr = flag.String("server_addr", "127.0.0.1:10000", "The server address in the format of host:port")
+	serverAddr = flag.String("server_addr", "localhost:10000", "The server address in the format of host:port")
 
-	documentDirectory = flag.String("doc_dir", ".", "Directory where documents to be indexed live")
+	documentDirectory = flag.String("doc_dir", "hold", "Directory where documents to be indexed live")
 
 	doIndex    = flag.Bool("index", false, "perform indexing if true")
-	passPhrase = flag.String("passPhrase", "", "password needed to access keys")
-	numWorkers = flag.Int("numWorkers", 1, "number of workers allowed at a time")
+	passPhrase = flag.String("passphrase", "", "password needed to access keys")
+	numWorkers = flag.Int("num_workers", 1, "number of workers allowed at a time")
 )
 
 func init() {
@@ -46,17 +46,21 @@ func main() {
 	if metaAck.Ack != true || err != nil {
 
 	}
+
 	//read config file
-	db, err := bolt.Open("~/.DuckDuckXor/ddx.db", 0600, nil)
+	db, err := bolt.Open("/Users/dimberman/.duckduckxor/client_ddx.db", 0600, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
+
 	var key *KeyManager
 	var bloom *bloomMaster
 	var names map[uint32]string
-	if *doIndex == true {
-		bloom, key, names = Index(*documentDirectory, db)
+
+	//if *doIndex == true {
+	if true {
+		bloom, key, names = Index(*documentDirectory, db, client, []byte(*passPhrase))
 	} else {
 		//TODO need to find a way to persistantly store the id->name map
 		var wg sync.WaitGroup
@@ -64,19 +68,18 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		bloom, err = newBloomMaster(db, *numWorkers, &wg, nil)
+		bloom, err = newBloomMaster(db, *numWorkers, &wg, nil, client)
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 	c := NewClientDaemon(db, key, bloom, names)
+
 	awaitCommands(c)
 }
 
 func awaitCommands(c *clientDaemon) {
-	for {
 
-	}
 }
 
 type plainDoc struct {
@@ -116,13 +119,13 @@ func (c *clientDaemon) search(query string) {
 
 }
 
-func Index(root string, db *bolt.DB) (*bloomMaster, *KeyManager, map[uint32]string) {
+func Index(root string, db *bolt.DB, client pb.EncryptedSearchClient, pass []byte) (*bloomMaster, *KeyManager, map[uint32]string) {
 
 	i := NewIndexer()
 	//	go func(i *indexer) {
 	//		c.docNames = <-i.nameChannel
 	//	}(i)
-	return i.Index(root, db, *numWorkers)
+	return i.Index(root, db, *numWorkers, client, pass)
 
 }
 

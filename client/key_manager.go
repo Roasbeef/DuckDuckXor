@@ -94,8 +94,10 @@ func NewKeyManager(db *bolt.DB, passphrase []byte, mainWg *sync.WaitGroup, abort
 	}
 
 	if !found {
+		fmt.Println("doing first time init")
 		err = k.performInitialSetup(passphrase)
 	} else {
+		fmt.Println("been here, reg setup")
 		err = k.performRegularSetup(passphrase)
 	}
 
@@ -341,6 +343,7 @@ out:
 	for {
 		select {
 		case keyReq := <-k.keyRequests:
+			fmt.Println("got key req", keyReq)
 			targetKey, ok := k.keyMap[keyReq.whichKey]
 			if !ok {
 				keyReq.errChan <- fmt.Errorf("invalid key type")

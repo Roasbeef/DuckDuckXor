@@ -35,6 +35,7 @@ func (e *errorHandler) handleErrors() {
 		case err := <-e.Message:
 			fmt.Printf(err.Error())
 			for _, stop := range e.stopFuncs {
+				fmt.Printf("stopping: ", stop)
 				stop()
 			}
 		}

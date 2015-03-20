@@ -24,7 +24,6 @@ func TestPartitionStreams(t *testing.T) {
 	}
 	<-preprocesser.InvIndexOut
 	<-preprocesser.DocEncryptOut
-	<-preprocesser.XsetGenOut
 	<-preprocesser.docNames
 	d = <-preprocesser.TfOut
 	testFile2 := []string{"the", "cat", "in", "the", "hat", "ate", "a", "yummy", "banana", "and", "didnt", "like", "it"}
@@ -36,6 +35,5 @@ func TestPartitionStreams(t *testing.T) {
 
 	<-preprocesser.InvIndexOut
 	<-preprocesser.DocEncryptOut
-	<-preprocesser.XsetGenOut
 	preprocesser.Stop()
 }

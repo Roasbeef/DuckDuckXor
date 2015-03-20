@@ -134,10 +134,10 @@ type bloomMaster struct {
 }
 
 // newBloomMaster....
-func newBloomMaster(db *bolt.DB, numWorkers int, mainWg *sync.WaitGroup, abort func(chan struct{}, error)) (*bloomMaster, error) {
+func newBloomMaster(db *bolt.DB, numWorkers int, mainWg *sync.WaitGroup, abort func(chan struct{}, error), client pb.EncryptedSearchClient) (*bloomMaster, error) {
 	// Do we already have all the filters saved?
 	// TODO(roasbeef): Determine this at an upper layer?
-	firstTime := false
+	firstTime := true
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bloomBucketKey))
 		firstTime = (b == nil)
@@ -148,6 +148,7 @@ func newBloomMaster(db *bolt.DB, numWorkers int, mainWg *sync.WaitGroup, abort f
 	}
 
 	return &bloomMaster{
+		client:             client,
 		db:                 db,
 		isFirstTime:        firstTime,
 		msgChan:            make(chan interface{}, numWorkers*3),
@@ -161,6 +162,7 @@ func newBloomMaster(db *bolt.DB, numWorkers int, mainWg *sync.WaitGroup, abort f
 		bloomFreqBuckets:   make(map[BloomFrequencyBucket]*bloom.BloomFilter),
 		fullBucketSize:     make(map[BloomFrequencyBucket]uint),
 		currentBucketSize:  make(map[BloomFrequencyBucket]uint),
+		numWorkers:         int32(numWorkers),
 		abort:              abort,
 	}, nil
 }
@@ -172,17 +174,22 @@ func (b *bloomMaster) Start() error {
 	}
 
 	if b.isFirstTime {
-		AddToWg(&b.wg, b.mainWg, 1)
+		fmt.Println("bloom first time")
+fmt.Println("adding to WaitGroup Bloom")
+AddToWg(&b.wg, b.mainWg, 1)
 		go b.xFilterUploader()
 
 		for i := int32(0); i < b.numWorkers; i++ {
-			AddToWg(&b.wg, b.mainWg, 1)
+fmt.Println("adding to WaitGroup Bloom")
+AddToWg(&b.wg, b.mainWg, 1)
 			go b.bloomWorker()
 		}
 
-		AddToWg(&b.wg, b.mainWg, 1)
+fmt.Println("adding to WaitGroup Bloom")
+AddToWg(&b.wg, b.mainWg, 1)
 		go b.freqBloomSaver()
 	} else {
+		fmt.Println("bloom form disk")
 
 		// Load the buckets into memory for aide with conjunctive queries.
 		err := b.db.View(func(tx *bolt.Tx) error {
@@ -194,7 +201,7 @@ func (b *bloomMaster) Start() error {
 		}
 	}
 
-	AddToWg(&b.wg, b.mainWg, 1)
+	b.wg.Add(1)
 	go b.queryHandler()
 
 	return nil
@@ -213,13 +220,17 @@ func (b *bloomMaster) Stop() error {
 // WaitForXSetInit allows workers who would like to send x-set bloom filter
 // updates to wait until the bloom filter has been initialized.
 func (b *bloomMaster) WaitForXSetInit() {
+	fmt.Println("waiting for xset")
 	<-b.xSetReady
+	fmt.Println("xset ready")
 }
 
 // WaitForBloomFreqInit allows workers who would like to send frequency
 // bloom filter bucket upadtes to wait until the bloom filter has been created.
 func (b *bloomMaster) WaitForBloomFreqInit() {
+	fmt.Println("waiting for bloom")
 	<-b.freqBucketsReady
+	fmt.Println("bloom ready")
 }
 
 // bloomSaver handles saving our populated frequency bloom filter buckets to
@@ -230,6 +241,7 @@ out:
 	for numSaved < numBuckets {
 		select {
 		case fBloom := <-b.finishedFreqBlooms:
+			fmt.Println("savin bucket", fBloom)
 			err := b.db.Update(func(tx *bolt.Tx) error {
 				// Grab our bucket, creating if it doesn't already exist.
 				bloomBucket, err := tx.CreateBucketIfNotExists(bloomBucketKey)
@@ -257,17 +269,20 @@ out:
 			break out
 		}
 	}
-	WgDone(&b.wg, b.mainWg)
+fmt.Println("subtracting from WaitGroup Bloom")
+WgDone(&b.wg, b.mainWg)
 }
 
 // bloomWorker handles creating and populating our two categories of
 // bloom filters.
 func (b *bloomMaster) bloomWorker() {
+	fmt.Println("bloom worker up")
 out:
 	for {
 		select {
 		// TODO(roasbeef): Proper stoppage condition...
 		case m, more := <-b.msgChan:
+			fmt.Println("bloom worker got msg", m)
 			if !more {
 				break out
 			}
@@ -287,7 +302,8 @@ out:
 			break out
 		}
 	}
-	WgDone(&b.wg, b.mainWg)
+fmt.Println("subtracting from WaitGroup Bloom")
+WgDone(&b.wg, b.mainWg)
 }
 
 // xFilterUploader waits until it has been signaled that the X-Set has been
@@ -301,6 +317,7 @@ out:
 		case <-b.quit:
 			break out
 		case <-b.xFilterFinished:
+			fmt.Println("uploading xset to server")
 			xFilterBytes, err := b.xSetFilter.GobEncode()
 			if err != nil {
 				b.abort(b.quit, err)
@@ -314,7 +331,8 @@ out:
 			break out
 		}
 	}
-	WgDone(&b.wg, b.mainWg)
+fmt.Println("subtracting from WaitGroup Bloom")
+WgDone(&b.wg, b.mainWg)
 }
 
 // queryHandler handles bloom filter word frequency queries.
@@ -324,6 +342,7 @@ out:
 	top:
 		select {
 		case req := <-b.wordQueries:
+			fmt.Println("got query for word bucket", req)
 			for bucketRange, filter := range b.bloomFreqBuckets {
 				if filter.Test([]byte(req.query)) {
 					req.resp <- bucketRange
@@ -336,7 +355,8 @@ out:
 			break out
 		}
 	}
-	WgDone(&b.wg, b.mainWg)
+
+b.wg.Done()
 }
 
 // InitXSet sends a message indicating that the xSet filter should be created.
@@ -372,6 +392,7 @@ func (b *bloomMaster) InitFreqBuckets(freqs map[BloomFrequencyBucket]uint) error
 	}
 	req := &freqBucketInitMsg{frequencyMap: freqs}
 	b.msgChan <- req
+	fmt.Println("sent bloom freq init")
 	return nil
 }
 
@@ -390,6 +411,7 @@ func (b *bloomMaster) QueueFreqBucketAdd(targetBucket BloomFrequencyBucket, word
 // TODO(roasbeef): Handle re-init fail
 // handleXSetInit creates the bloom filter for the X-Set.
 func (b *bloomMaster) handleXSetInit(msg *xSetSizeInitMsg) {
+	fmt.Println("creating xset filter")
 	// Create the x-set bloom filter now that we have the proper parameters.
 	b.xSetFilter = bloom.NewWithEstimates(msg.numElements, fpRate)
 	b.xFinalSize = msg.numElements
@@ -402,6 +424,7 @@ func (b *bloomMaster) handleXSetInit(msg *xSetSizeInitMsg) {
 
 // handleXSetAdd adds a list of xTags to the X-Set filter.
 func (b *bloomMaster) handleXSetAdd(msg *xSetAddMsg) {
+	fmt.Println("adding xtags")
 	for _, xTag := range msg.xTags {
 		b.xSetFilter.Add(xTag)
 		// TODO(Roasbeef): channel scheme instead??
@@ -409,13 +432,16 @@ func (b *bloomMaster) handleXSetAdd(msg *xSetAddMsg) {
 	}
 
 	// Final element has been added, signal the streamer to begin.
-	if uint(b.xNumAddedElements) == b.xFinalSize {
+	if atomic.LoadInt32(&b.xNumAddedElements) == int32(b.xFinalSize) {
+		fmt.Println("final elem added")
 		close(b.xFilterFinished)
 	}
+	fmt.Println("fin adding xtags", b.xNumAddedElements, b.xFinalSize)
 }
 
 // handleFreqBucketInit create a bloom filter for each frequency bucket.
 func (b *bloomMaster) handleFreqBucketInit(msg *freqBucketInitMsg) {
+	fmt.Println("creating freq buckets", msg)
 	for bucketRange, targetSize := range msg.frequencyMap {
 		filter := bloom.NewWithEstimates(targetSize, fpRate)
 		b.bloomFreqBuckets[bucketRange] = filter
@@ -432,6 +458,7 @@ func (b *bloomMaster) handleFreqBucketInit(msg *freqBucketInitMsg) {
 // If after adding all the passed strings to the bloomfilter to bucket is full,
 // then we also send the finished bucket off so it can be written to disk.
 func (b *bloomMaster) handleFreqBucketAdd(msg *freqBucketAddMsg) {
+	fmt.Println("adding to freq bucekt", msg)
 	numAdded := uint(0)
 	targetBucket := msg.whichBucket
 	bucket, ok := b.bloomFreqBuckets[targetBucket]
@@ -465,6 +492,7 @@ func (b *bloomMaster) QueryWordFrequency(word string) BloomFrequencyBucket {
 // loadFiltersFromDb retrives and deserializes each frequency bucket bloom
 // filter form the DB.
 func (b *bloomMaster) loadFiltersFromDb(bloomBucket *bolt.Bucket) error {
+	fmt.Println("loading filters form  db")
 	for i := 0; i < numBuckets; i++ {
 		filterBucket := BloomFrequencyBucket(i)
 		key := bucketToKey[filterBucket]
@@ -480,7 +508,6 @@ func (b *bloomMaster) loadFiltersFromDb(bloomBucket *bolt.Bucket) error {
 		}
 
 		b.bloomFreqBuckets[filterBucket] = &filter
-
 	}
 	return nil
 }

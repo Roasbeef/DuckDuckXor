@@ -47,7 +47,8 @@ func TestChannelSplitter(t *testing.T) {
 	var mainWg sync.WaitGroup
 	indexChan := make(chan *InvIndexDocument)
 	e := NewEncryptedIndexGenerator(indexChan, 5, nil, nil, nil, &mainWg, nil)
-	AddToWg(&e.wg, &mainWg, 1)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&e.wg, &mainWg, 1)
 	c1, c2 := e.chanSplitter()
 
 	indexChan <- &InvIndexDocument{Words: make(map[string]struct{}), DocId: 10}
@@ -92,7 +93,8 @@ func TestXsetWorker(t *testing.T) {
 
 	indexChan := make(chan *InvIndexDocument)
 	e := NewEncryptedIndexGenerator(indexChan, 5, keyMap, nil, nil, &mainWg, nil)
-	AddToWg(&e.wg, &mainWg, 1)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&e.wg, &mainWg, 1)
 	c1, c2 := e.chanSplitter()
 
 	// Goroutine to eat up tSet chan.
@@ -103,7 +105,8 @@ func TestXsetWorker(t *testing.T) {
 	}()
 
 	// Launch two xSet workers.
-	AddToWg(&e.wg, &mainWg, 2)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&e.wg, &mainWg, 2)
 	go e.xSetWorker(c1)
 	go e.xSetWorker(c1)
 
@@ -170,7 +173,8 @@ func TestBloomStreamer(t *testing.T) {
 	// Should only house 4 xtags.
 	b.xFinalSize = 1
 	b.xSetFilter = bloom.NewWithEstimates(100, 0.00001)
-	AddToWg(&b.wg, &mainWg, 1)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&b.wg, &mainWg, 1)
 	go b.bloomWorker()
 
 	if err != nil {
@@ -178,7 +182,8 @@ func TestBloomStreamer(t *testing.T) {
 	}
 
 	e := NewEncryptedIndexGenerator(nil, 5, nil, b, nil, &mainWg, nil)
-	AddToWg(&e.wg, &mainWg, 1)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&e.wg, &mainWg, 1)
 	go e.bloomStreamer()
 
 	// Signal that the x-set has been created.
@@ -270,7 +275,8 @@ func TestTsetWorker(t *testing.T) {
 
 	indexChan := make(chan *InvIndexDocument)
 	e := NewEncryptedIndexGenerator(indexChan, 5, keyMap, nil, MockSearchClient{}, &mainWg, nil)
-	AddToWg(&e.wg, &mainWg, 1)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&e.wg, &mainWg, 1)
 	c1, c2 := e.chanSplitter()
 
 	// Goroutine to eat up xSet chan.
@@ -281,13 +287,16 @@ func TestTsetWorker(t *testing.T) {
 	}()
 
 	// Launch two xSet workers.
-	AddToWg(&e.wg, &mainWg, 2)
-	AddToWg(&e.janitorWG, &mainWg, 2)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&e.wg, &mainWg, 2)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&e.janitorWG, &mainWg, 2)
 	go e.tSetWorker(c2)
 	go e.tSetWorker(c2)
 
 	// Start the janitor.
-	AddToWg(&e.wg, &mainWg, 1)
+	fmt.Println("adding to WaitGroup")
+AddToWg(&e.wg, &mainWg, 1)
 	go e.tSetJanitor()
 
 	var wg sync.WaitGroup

@@ -413,7 +413,10 @@ func computeBlindedXind(z, xind []byte, groupOrder *big.Int) []byte {
 
 	// y = xind * z^-1
 	zInverse := new(big.Int).ModInverse(zBig, groupOrder)
-	y := new(big.Int).Mul(xindBig, zInverse)
+	y := new(big.Int).Mod(
+		new(big.Int).Mul(xindBig, zInverse),
+		groupOrder,
+	)
 	return y.Bytes()
 }
 

@@ -66,6 +66,7 @@ type encryptedIndexSearcher struct {
 	xSet *bloom.BloomFilter
 
 	tSetMetaData *pb.MetaData
+	isMetaLoaded bool
 
 	wg sync.WaitGroup
 }
@@ -74,6 +75,7 @@ type encryptedIndexSearcher struct {
 func NewEncryptedIndexSearcher(db *bolt.DB) (*encryptedIndexSearcher, error) {
 	// TODO(roasbeef): Check db for xfilter, if so load, signal to wait?
 	return &encryptedIndexSearcher{
+		db:              db,
 		quit:            make(chan struct{}),
 		metaDataRecived: make(chan struct{}),
 		tWriteReqs:      make(chan *tSetWriteReq, numTsetWriters*5),
@@ -184,7 +186,10 @@ func (e *encryptedIndexSearcher) loadXSetFilterFromDb() error {
 // LoadTSetMetaData loads metadata about the tSet into memory.
 func (e *encryptedIndexSearcher) LoadTSetMetaData(mData *pb.MetaData) {
 	e.tSetMetaData = mData
-	close(e.metaDataRecived)
+	if !e.isMetaLoaded {
+		close(e.metaDataRecived)
+		e.isMetaLoaded = true
+	}
 }
 
 // waitForMetaDataInit allows helper goroutines to wait, and the be signalled
@@ -195,6 +200,10 @@ func (e *encryptedIndexSearcher) waitForMetaDataInit() {
 
 // PutTsetFragment queues a tSet fragment to be written to the DB.
 func (e *encryptedIndexSearcher) PutTsetFragment(tuple *pb.TSetFragment) {
+	if tuple == nil {
+		return
+	}
+
 	req := &tSetWriteReq{tuple}
 	e.tWriteReqs <- req
 }

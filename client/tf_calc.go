@@ -83,8 +83,9 @@ func (t *TermFrequencyCalculator) Start() error {
 	t.initReducers()
 	//TODO after initializing bloom filters, wait for info
 	//from lalu stating that the buckets are created
+AddToWg(&t.wg, t.mainWg, 2)
 	go t.populateBloomFilters()
-
+	go t.bloomFilterInitializer()
 	return nil
 }
 
@@ -179,7 +180,6 @@ func Hash(s string) uint32 {
 }
 
 func (t *TermFrequencyCalculator) reducer(key uint32) {
-	count := 0
 	input := t.reduceMap[key]
 	subSet := make(map[string]int)
 out:
@@ -189,9 +189,6 @@ out:
 			break out
 		case val := <-input:
 			//TODO why am I doing this count?
-			if subSet[val.key] == 0 {
-				count++
-			}
 			subSet[val.key] += val.tf
 		case <-t.reducerQuit:
 			break out
@@ -200,6 +197,7 @@ out:
 
 	bloomFilterVals := t.calculateBucketSizes(subSet)
 	t.bloomSizeChan <- bloomFilterVals
+WgDone(&t.wg, t.mainWg)
 
 }
 
@@ -225,6 +223,7 @@ out:
 	close(t.bloomSizeChan)
 	t.bloomFilterManager.InitFreqBuckets(b)
 
+WgDone(&t.wg, t.mainWg)
 }
 
 func (t *TermFrequencyCalculator) calculateBucketSizes(resultMap map[string]int) bucketVals {
@@ -308,4 +307,5 @@ func (t *TermFrequencyCalculator) populateBloomFilters() {
 	t.bloomFilterManager.QueueFreqBucketAdd(Below10000, ltTenKSlice)
 	t.bloomFilterManager.QueueFreqBucketAdd(Below100000, ltHundredKSlice)
 
+WgDone(&t.wg, t.mainWg)
 }

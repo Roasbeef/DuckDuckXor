@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"runtime"
 
 	"github.com/boltdb/bolt"
@@ -15,12 +16,14 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+var dbPath = "/Users/dimberman/.duckduckxor/"
+
 var (
 	port     = flag.Int("port", 10000, "The server port")
 	tls      = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 	certFile = flag.String("cert_file", "testdata/server1.pem", "The TLS cert file")
 	keyFile  = flag.String("key_file", "testdata/server1.key", "The TLS key file")
-	dbFile   = flag.String("db_file", "~/.duckduckxor/db.bolt", "Location of DB file")
+	dbFile   = flag.String("db_file", dbPath+"ddx.db", "Location of DB file")
 )
 
 // encryptedSearchServer....
@@ -61,7 +64,7 @@ func (e *encryptedSearchServer) UploadXSetFilter(ctx context.Context, xFilter *p
 func (e *encryptedSearchServer) UploadCipherDocs(stream pb.EncryptedSearch_UploadCipherDocsServer) error {
 	for {
 		doc, err := stream.Recv()
-		if err == io.EOF {
+		if err == io.EOF || doc == nil {
 			// TODO(Roasbeef): Proper closure?
 			return stream.SendAndClose(&pb.CipherDocAck{
 				Ack: true,
@@ -126,14 +129,19 @@ func newEncryptedSearchServer(docStore *documentDatabase, index *encryptedIndexS
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
+	// Create our dir if it doesn't exist.
+	if err := os.MkdirAll(dbPath, os.ModePerm); err != nil {
+		log.Fatal(err)
+	}
+
 	flag.Parse()
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
+	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
 	// Open up our database, creating the file if needed.
-	db, err := bolt.Open(*dbFile, 0600, nil)
+	db, err := bolt.Open(*dbFile, os.ModePerm, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -51,6 +51,7 @@ type documentDatabase struct {
 // NewDocumentDatabas creates and returns a new instance of documentDatabase.
 func NewDocumentDatabase(db *bolt.DB) (*documentDatabase, error) {
 	return &documentDatabase{
+		db:            db,
 		quit:          make(chan struct{}),
 		readRequests:  make(chan *readDocRequest, chanBufSize),
 		writeRequests: make(chan *putDocRequest, chanBufSize),

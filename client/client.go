@@ -29,11 +29,6 @@ var (
 	numWorkers = flag.Int("num_workers", 1, "number of workers allowed at a time")
 )
 
-func init() {
-	//c := NewCLI()
-	//c.Start()
-}
-
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	conn, err := grpc.Dial(*serverAddr)
@@ -73,7 +68,11 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	c := NewClientDaemon(db, key, bloom, names)
+
+	c, err := NewClientDaemon(db, key, bloom, names)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	awaitCommands(c)
 }
@@ -97,11 +96,10 @@ type clientDaemon struct {
 	client    pb.EncryptedSearchClient
 }
 
-func NewClientDaemon(db *bolt.DB, k *KeyManager, b *bloomMaster, dNames map[uint32]string) *clientDaemon {
+func NewClientDaemon(db *bolt.DB, k *KeyManager, b *bloomMaster, dNames map[uint32]string) (*clientDaemon, error) {
 	conn, err := grpc.Dial(*serverAddr)
 	if err != nil {
-		//TODO handle error
-
+		return nil, err
 	}
 	client := pb.NewEncryptedSearchClient(conn)
 	return &clientDaemon{
@@ -111,7 +109,7 @@ func NewClientDaemon(db *bolt.DB, k *KeyManager, b *bloomMaster, dNames map[uint
 		docNames:  dNames,
 		plainDocs: make(chan plainDoc),
 		client:    client,
-	}
+	}, nil
 }
 
 func (c *clientDaemon) search(query string) {
